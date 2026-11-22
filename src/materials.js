@@ -57,6 +57,36 @@ export function buildMaterials() {
   M.bark = pbr('bark_willow_02', { scale: 1.2 });
 
   const std = (color, rough, metal, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, ...extra });
+  // Campagne, quartiers, maisons, industrie
+  M.field = grime(pbr('aerial_grass_rock', { scale: 14, color: 0xd2d8c0 }), { macro: 0.35 });
+  M.asphaltRural = grime(pbr('asphalt_02', { scale: 4.5, color: 0xc4c4c4 }), { macro: 0.25 });
+  M.gravelShoulder = grime(pbr('gravel_floor', { scale: 2, color: 0xa8a197 }), { macro: 0.2 });
+  M.parkingLot = grime(pbr('asphalt_02', { scale: 4.5, color: 0xcfcfcf }), { macro: 0.28 });
+  M.concreteYard = grime(pbr('garage_floor', { scale: 4, color: 0xc9c5bd }), { macro: 0.3 });
+  M.drive = grime(pbr('concrete_floor_02', { scale: 2, color: 0xd8d2c6 }), { macro: 0.15 });
+  M.showroomFloor = pbr('marble_tiles', { scale: 2.5 });
+  M.whiteBrick = grime(pbr('white_bricks', { scale: 2 }), { macro: 0.1, base: 0.25 });
+  M.roofClay = grime(pbr('clay_roof_tiles_02', { scale: 2.2 }), { macro: 0.18 });
+  M.roofGrey = grime(pbr('grey_roof_tiles_02', { scale: 2.2 }), { macro: 0.18 });
+  M.ridgeClay = std(0x8a4a32, 0.8, 0); M.ridgeGrey = std(0x3c3f44, 0.75, 0);
+  M.metalSheet = grime(pbr('box_profile_metal_sheet', { scale: 2.5, color: 0xc9ced3, metalness: 1 }), { macro: 0.18, base: 0.2 });
+  M.metalSheet.metalness = 0.6; M.metalSheet.metalnessMap = M.metalSheet.roughnessMap;
+  M.garageDoor = pbr('painted_metal_shutter', { scale: 2.4, color: 0xe8e8e8 });
+  M.fence = grime(pbr('plank_flooring_02', { scale: 1.5, color: 0xf0ece4 }), { macro: 0.1 });
+  M.curbMat = M.curb;
+  M.pitch = grime(pbr('leafy_grass', { scale: 2, color: 0x9cc27a }), { macro: 0.12 });
+  M.skylight = std(0xa9c4d6, 0.15, 0.2, { envMapIntensity: 1.4 });
+  M.mailbox = std(0x2b4a6b, 0.4, 0.5);
+  M.flag = std(0xf2c14e, 0.8, 0, { side: THREE.DoubleSide });
+  M.canopy = std(0xf2f2f0, 0.5, 0.1);
+  M.canopyRed = std(0x0b7a3a, 0.45, 0.1);
+  M.pumpBody = std(0xf4f4f2, 0.35, 0.2);
+  M.pumpScreen = std(0x101418, 0.2, 0.3, { emissive: 0x2a8f5a, emissiveIntensity: 0.6 });
+  M.signalPole = std(0x3a3d40, 0.45, 0.8);
+  M.signalBody = std(0x15171a, 0.5, 0.3);
+  for (const [k, c] of [['containerBlue', 0x2c5a8c], ['containerRed', 0x8c2c22], ['containerGreen', 0x2f6b47], ['containerOrange', 0xc0662a]]) {
+    M[k] = grime(pbr('box_profile_metal_sheet', { scale: 2.5, color: c }), { macro: 0.2 }); M[k].metalness = 0.4; M[k].metalnessMap = M[k].roughnessMap;
+  }
   M.metalDark = std(0x1d1f22, 0.42, 0.85);
   M.iron = std(0x121314, 0.55, 0.7);
   M.alu = std(0x8f969d, 0.32, 1.0);

@@ -55,7 +55,7 @@ export class Sky {
     this.sun.shadow.bias = -0.00025; this.sun.shadow.normalBias = 0.035;
     this.sun.shadow.camera.near = 1; this.sun.shadow.camera.far = 900;
     scene.add(this.sun, this.sun.target);
-    scene.fog = new THREE.FogExp2(0xb8c4d0, 0.0016);
+    scene.fog = new THREE.FogExp2(0xb8c4d0, 0.0007);
     this.fogColor = new THREE.Color();
   }
 
@@ -117,7 +117,7 @@ export class Sky {
 
     // Brouillard atmosphérique : teinte de l'horizon.
     this.fogColor.copy(dA.horizon).multiplyScalar(A.sky / dA.avg).lerp(dB.horizon.clone().multiplyScalar(B.sky / dB.avg), m);
-    this.scene.fog.color.copy(this.fogColor);
+    this.scene.fog.color.copy(this.fogColor).multiplyScalar(0.62);
 
     this.mesh.position.copy(camera.position);
 

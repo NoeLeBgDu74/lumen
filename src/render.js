@@ -74,8 +74,8 @@ export class Renderer {
     if (q.ao) {
       const ao = this.ao = new GTAOPass(this.scene, this.camera, size.x, size.y);
       ao.output = GTAOPass.OUTPUT.Default;
-      ao.blendIntensity = 1.0;
-      ao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1.4, thickness: 1.5, scale: 1.0, samples: 12 });
+      ao.blendIntensity = 0.8;
+      ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1, thickness: 0.2, distanceFallOff: 1, scale: 1.0, samples: 12 });
       ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 16 });
       comp.addPass(ao);
     } else this.ao = null;

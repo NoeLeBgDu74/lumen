@@ -8,7 +8,7 @@ const HDRIS = ['qwantani_morning_puresky', 'qwantani_noon_puresky', 'qwantani_la
   'qwantani_sunset_puresky', 'qwantani_dusk_2_puresky', 'qwantani_night_puresky'];
 const TEXTURES = ['asphalt_02', 'square_concrete_pavers', 'concrete_floor_02', 'red_brick_03', 'white_plaster_02',
   'yellow_plaster', 'concrete_tile_facade', 'brick_wall_10', 'painted_concrete', 'gravel_floor', 'leafy_grass',
-  'wood_floor', 'marble_tiles', 'laminate_floor_02', 'bark_willow_02', 'rectangular_facade_tiles_02', 'grey_plaster'];
+  'wood_floor', 'marble_tiles', 'laminate_floor_02', 'bark_willow_02', 'rectangular_facade_tiles_02', 'grey_plaster', 'clay_roof_tiles_02', 'grey_roof_tiles_02', 'box_profile_metal_sheet', 'garage_floor', 'painted_metal_shutter', 'plank_flooring_02', 'white_bricks', 'brown_mud_leaves_01', 'coast_sand_rocks_02', 'rocky_terrain_02', 'aerial_grass_rock', 'forest_ground_04'];
 const MODELS = ['street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'metal_trash_can', 'modular_street_seating',
   'planter_box_01', 'potted_plant_02', 'shrub_02', 'exterior_aircon_unit', 'outdoor_table_chair_set_01',
   'CoffeeCart_01', 'korean_public_payphone_01', 'Sofa_01', 'modern_arm_chair_01', 'modern_coffee_table_01',

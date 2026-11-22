@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LUMEN — simulation de vie</title>
+<title>LIVING WORLD</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="src/ui.css">
@@ -18,8 +18,8 @@
 <canvas id="c"></canvas>
 
 <div id="loading">
-  <div class="brand">LUMEN</div>
-  <div class="tag">Une vie. Une ville.</div>
+  <div class="brand">LIVING WORLD</div>
+  <div class="tag">Le monde vit sa vie. Vous vivez la vôtre.</div>
   <div class="bar"><i id="loadbar"></i></div>
   <div id="loadtxt">Initialisation…</div>
 </div>
@@ -35,9 +35,28 @@
 
 <div id="fade"></div>
 
+<div id="create" hidden>
+  <div class="panel wide">
+    <h1>Créer votre personnage</h1>
+    <div class="cards" id="sexrow">
+      <button class="card on" data-m="rpm"><b>Homme</b><span>Animations en capture de mouvement complètes</span></button>
+      <button class="card" data-m="michelle"><b>Femme</b><span>Animations de base (pas encore de saut animé)</span></button>
+    </div>
+    <div class="row2">
+      <label>Prénom<input id="cfirst" maxlength="18" value="Lucas"></label>
+      <label>Nom<input id="clast" maxlength="18" value="Moreau"></label>
+    </div>
+    <h3>Couleur du haut</h3>
+    <div class="swatches" id="ctop"></div>
+    <h3>Couleur du pantalon</h3>
+    <div class="swatches" id="cbot"></div>
+    <button id="cgo" class="primary">Commencer ma vie</button>
+  </div>
+</div>
+
 <div id="menu" hidden>
   <div class="panel">
-    <h1>LUMEN</h1>
+    <h1>LIVING WORLD</h1>
     <h3>Qualité graphique</h3>
     <div class="row" id="qrow">
       <button data-q="low">Basse</button><button data-q="medium">Moyenne</button><button data-q="high">Haute</button><button data-q="ultra">Ultra</button>
