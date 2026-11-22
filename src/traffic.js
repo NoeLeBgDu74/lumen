@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import * as W from './world.js';
 import { signalState } from './city.js';
 import { CATALOG, PAINTS, loadCarTemplate, makeCar, poseCar, carLOD } from './cars.js';
+import { groundHeight } from './physics.js';
 
 const tmp = new THREE.Vector3();
 let uid = 0;
@@ -97,7 +98,7 @@ export class Traffic {
     if (this.mirror) { this.updateMirror(dt, ctx); return; }
     const obstacles = ctx.obstacles || [];
     for (const ai of this.cars) {
-      if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police' || ai.state === 'jacked' || ai.state === 'broken') continue;
+      if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police' || ai.state === 'jacked' || ai.state === 'broken' || ai.state === 'fire') continue;
       this.step(ai, dt, obstacles, ctx);
     }
   }
@@ -154,6 +155,9 @@ export class Traffic {
     ai.v = THREE.MathUtils.clamp(ai.v + acc * dt, 0, Math.max(vmax, 0) + 0.01);
     if (vmax < 0.05 && ai.v < 0.3) ai.v = 0;
     ai.brake = acc < 0 && ai.v > 0.2 || ai.v === 0;
+    // régulation : une voiture bloquée trop longtemps (hors feu rouge) est débloquée
+    if (ai.v < 0.2 && stopT === Infinity) { ai.stuckT = (ai.stuckT || 0) + dt; } else ai.stuckT = 0;
+    if (ai.stuckT > 28) { ai.stuckT = 0; if (ai.turn) { ai.edge = ai.turn.next; ai.turn = null; ai.t = W.RW + 1; } else { ai.t = Math.min(ai.t + 9, e.len - W.RW - 0.5); } ai.v = 4; }
     const ds = ai.v * dt;
     // déplacement
     if (ai.turn) {
@@ -193,6 +197,8 @@ export class Traffic {
 
   sync(ai, ctx) {
     const o = ai.car.obj;
+    if (!isFinite(ai.pos.x) || !isFinite(ai.pos.z) || !isFinite(ai.heading)) { ai.pos.set(0, 0, 0); ai.heading = 0; ai.v = 0; } // garde-fou
+    ai.pos.y = 0;
     o.position.set(ai.pos.x, 0, ai.pos.z);
     o.rotation.set(0, ai.heading, 0);
     const night = ctx ? ctx.night : 0;
@@ -228,6 +234,10 @@ export class Traffic {
       const d = ai.pos.distanceTo(cam);
       ai.car.obj.visible = ai.state === 'player' || ai.state === 'police' || d < dist;
       if (ai.car.obj.visible) carLOD(ai.car, ai.state === 'player' ? 0 : d);
+      if (ai.state !== 'player') { // toujours posée au sol (trottoir / parking compris), assiette à plat
+        const o = ai.car.obj; o.position.y = groundHeight(o.position.x, o.position.z) + (ai.spot && ai.spot.lot ? 0.15 : 0) * (groundHeight(o.position.x, o.position.z) > 0 ? 0 : 1);
+        o.rotation.x = 0; o.rotation.z = 0;
+      }
     }
   }
 }

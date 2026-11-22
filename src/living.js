@@ -14,6 +14,8 @@ export class Living {
     this.skid = new THREE.InstancedMesh(this.skidGeo, new THREE.MeshBasicMaterial({ color: 0x0a0a0a, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 }), 1500);
     this.skid.count = 0; this.skid.frustumCulled = false; this.skidN = 0; game.R.scene.add(this.skid);
     this.birds = []; this.spawnBirds();
+    this.fires = []; this.nextFire = game.time + 200 + Math.random() * 200;
+    this.flameTex = flameTexture(); this.smokeTex = smokeTexture();
   }
 
   // ---------- rumeurs ----------
@@ -89,6 +91,7 @@ export class Living {
     const kind = Math.random() < 0.6 ? 'panne' : 'accrochage';
     ai.state = 'broken'; ai.v = 0; ai.brokeT = g.time; ai.hazard = true;
     this.incidents.push({ ai, kind, t: 0 });
+    setTimeout(() => { const inc = this.incidents.find(i => i.ai === ai); if (!inc) return; const u = g.police.spawnUnit(ai.pos.clone()); u.target = { pos: ai.pos.clone().add(new THREE.Vector3(Math.sin(ai.heading), 0, Math.cos(ai.heading)).multiplyScalar(-9)) }; u.mode = 'chase'; inc.unit = u; }, 15000);
     const where = districtAt(ai.pos.x, ai.pos.z);
     this.rumor(kind === 'panne' ? `une voiture est tombée en panne à ${where}, ça bouchonne` : `il y a eu un accrochage à ${where}`, where);
     if (ai.owner && ai.owner.memory) g.pop.remember(ai.owner, kind === 'panne' ? 'sa voiture est tombée en panne' : 'a eu un accrochage');
@@ -99,7 +102,13 @@ export class Living {
       i.t += dt; const ai = i.ai;
       ai.blink = (Math.floor(g.time * 2.5) % 2) * 3; // feux de détresse
       g.traffic.sync(ai, { night: g.sky.night > 0.45 ? 1 : 0 });
-      if (i.t > 75) { ai.state = 'drive'; ai.hazard = false; ai.blink = 0; this.incidents.splice(this.incidents.indexOf(i), 1); }
+      // la police arrive, sécurise et fait dégager le véhicule (dépannage) : la circulation reprend
+      if (i.unit && i.unit.ai.pos.distanceTo(ai.pos) < 14) { i.onSite = (i.onSite || 0) + dt; if (i.onSite > 1 && !i.said && ai.pos.distanceTo(g.player.pos) < 120) { i.said = true; g.life.notify('🚓 La police sécurise l’accident et fait circuler'); } }
+      if ((i.onSite || 0) > 14 || i.t > 110) {
+        if (i.kind === 'panne') { g.traffic.remove(ai); } else { ai.state = 'drive'; ai.hazard = false; ai.blink = 0; }
+        if (i.unit) { const u = i.unit; u.target = null; setTimeout(() => { if (g.police.units.includes(u)) g.police.removeUnit(u); }, 8000); }
+        this.incidents.splice(this.incidents.indexOf(i), 1);
+      }
     }
   }
 
@@ -151,10 +160,111 @@ export class Living {
     }
   }
 
+  // ---------- incendie : flammes, fumée, alerte, camion de pompiers, lances à eau ----------
+  startFire(at) {
+    const g = this.g, me = g.veh ? g.veh.pos : g.player.pos;
+    const cands = W.places.filter(p => p.bounds && p.door && p.door.p.distanceTo(me) > 40 && p.door.p.distanceTo(me) < 230 && p.type !== 'park' && p.type !== 'sports');
+    const pl = at || cands[Math.floor(Math.random() * cands.length)]; if (!pl) return;
+    const b = pl.bounds, H = Math.min(pl.height || 12, 18);
+    const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
+    const grp = new THREE.Group(); g.R.scene.add(grp);
+    const flames = [], smoke = [];
+    for (let k = 0; k < 14; k++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.flameTex, color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      const fx = b.x0 + Math.random() * (b.x1 - b.x0), fz = Math.random() < 0.5 ? b.z0 - 0.3 : b.z1 + 0.3, fy = 3 + Math.random() * (H - 2);
+      s.position.set(fx, fy, fz); s.scale.set(3, 4.5, 1); s.userData = { base: s.position.clone(), ph: Math.random() * 6 }; grp.add(s); flames.push(s);
+    }
+    for (let k = 0; k < 18; k++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.smokeTex, color: 0x333333, transparent: true, opacity: 0.6, depthWrite: false }));
+      s.position.set(cx + (Math.random() - 0.5) * 8, H + Math.random() * 25, cz + (Math.random() - 0.5) * 8); s.scale.setScalar(8 + Math.random() * 6); s.userData = { v: 1.5 + Math.random() * 2 }; grp.add(s); smoke.push(s);
+    }
+    const light = new THREE.PointLight(0xff7a2a, 40, 40, 1.4); light.position.set(cx, H * 0.6, cz); grp.add(light);
+    const fire = { pl, grp, flames, smoke, light, hp: 100, t: 0, cx, cz, H, truck: null, crew: [], phase: 'burn' };
+    this.fires.push(fire);
+    this.rumor(`un incendie s'est déclaré à ${pl.name}`, districtAt(cx, cz));
+    g.life.notify(`🔥 Incendie à ${pl.name} ! Les pompiers sont alertés.`, 'warn');
+    for (const p of g.pop.people) if (p.at === pl && p.state === 'inside') { p.state = 'walk'; p.path = [p.pos.clone(), pl.door.p.clone().add(pl.door.nrm.clone().multiplyScalar(12))]; p.pi = 0; p.onArrive = () => { p.state = 'outside'; p.until = g.hour + 0.6; }; g.pop.remember(p, `a dû évacuer ${pl.name} à cause d'un incendie`); }
+    setTimeout(() => this.dispatchTruck(fire), 9000);
+    return fire;
+  }
+  dispatchTruck(fire) {
+    const g = this.g; if (!this.fires.includes(fire)) return;
+    const ai = g.traffic.newCar('lightbody90', '#b3121b'); ai.state = 'fire';
+    const a = Math.random() * 6.28; ai.pos.set(fire.cx + Math.cos(a) * 160, 0, fire.cz + Math.sin(a) * 160);
+    const r = g.world.resolve(ai.pos.x, ai.pos.z, 3); ai.pos.set(r.x, 0, r.z); ai.v = 12; ai.heading = Math.atan2(fire.cx - ai.pos.x, fire.cz - ai.pos.z);
+    const bar = new THREE.Group(); const mk = (c) => new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.14, 0.24), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0 }));
+    const l1 = mk(0xff2020), l2 = mk(0xff2020); l1.position.x = 0.32; l2.position.x = -0.32; bar.add(l1, l2); bar.position.set(0, ai.tpl.size.y + 0.05, 0.8); ai.car.obj.add(bar);
+    fire.truck = { ai, l1: l1.material, l2: l2.material, stuck: 0 };
+  }
+  updateFires(dt) {
+    const g = this.g;
+    for (const f of [...this.fires]) {
+      f.t += dt; const k = f.hp / 100;
+      for (const s of f.flames) { const u = s.userData; s.position.y = u.base.y + Math.sin(g.time * 6 + u.ph) * 0.3; s.scale.set(3 * k + 0.3, (4.5 + Math.sin(g.time * 9 + u.ph)) * k + 0.3, 1); s.material.opacity = Math.min(1, k * 1.3); }
+      for (const s of f.smoke) { s.position.y += s.userData.v * dt; if (s.position.y > f.H + 35) s.position.y = f.H; s.material.opacity = 0.25 + 0.35 * Math.max(k, f.phase === 'out' ? 0.3 : 0); }
+      f.light.intensity = 40 * k * (0.8 + Math.random() * 0.4);
+      // camion de pompiers : conduite directe vers le feu, sirène
+      const T = f.truck;
+      if (T) {
+        const ai = T.ai, dest = f.pl.door.p.clone().add(f.pl.door.nrm.clone().multiplyScalar(9));
+        const to = dest.clone().sub(ai.pos); to.y = 0; const dist = to.length();
+        if (dist > 2) {
+          const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+          ai.heading += THREE.MathUtils.clamp(dh, -1.4 * dt, 1.4 * dt); ai.v += THREE.MathUtils.clamp((dist < 20 ? dist * 0.5 : 15) - ai.v, -8 * dt, 4 * dt);
+          const fw = new THREE.Vector3(Math.sin(ai.heading), 0, Math.cos(ai.heading));
+          const r = g.world.resolve(ai.pos.x + fw.x * ai.v * dt, ai.pos.z + fw.z * ai.v * dt, ai.tpl.size.x / 2 + 0.3);
+          if (r.hit) { ai.heading += 1.3 * dt; ai.v *= 0.6; T.stuck += dt; if (T.stuck > 4) { ai.pos.addScaledVector(fw, -3); T.stuck = 0; } } else ai.pos.set(r.x, 0, r.z);
+        } else if (!f.crew.length) this.deployCrew(f);
+        ai.spin += ai.v * dt / 0.4; g.traffic.sync(ai, { night: 1 });
+        const ph = Math.floor(g.time * 5) % 2; T.l1.emissiveIntensity = ph ? 12 : 0; T.l2.emissiveIntensity = ph ? 0 : 12;
+      }
+      // pompiers : lances à eau
+      for (const c of f.crew) {
+        c.ch.update(dt); c.t += dt;
+        for (const d of c.drops) { d.position.addScaledVector(d.userData.v, dt); d.userData.v.y -= 9.8 * dt; d.userData.t += dt; if (d.userData.t > 1.2) { d.position.copy(c.nozzle); d.userData.t = 0; d.userData.v.copy(c.dir).multiplyScalar(14 + Math.random() * 3).add(new THREE.Vector3((Math.random() - 0.5), 4 + Math.random() * 2, (Math.random() - 0.5))); } }
+      }
+      if (f.crew.length && f.phase === 'burn') { f.hp -= dt * 3.2; if (f.hp <= 0) { f.phase = 'out'; f.hp = 0; f.outT = g.time; g.life.notify(`🚒 L'incendie de ${f.pl.name} est maîtrisé`, 'ok'); this.rumor(`les pompiers ont éteint l'incendie de ${f.pl.name}`); } }
+      if (f.phase === 'out' && g.time - f.outT > 25) { this.endFire(f); }
+    }
+  }
+  deployCrew(f) {
+    const g = this.g, base = g.charBases.soldier || g.charBases.rpm;
+    const n = f.pl.door.nrm, side = new THREE.Vector3(-n.z, 0, n.x);
+    for (let k = 0; k < 3; k++) {
+      const ch = new Character(base, { tint: null, height: 1.8 });
+      const p = f.pl.door.p.clone().addScaledVector(n, 6).addScaledVector(side, (k - 1) * 3); p.y = 0.15;
+      ch.obj.position.copy(p); ch.obj.rotation.y = Math.atan2(-n.x, -n.z); ch.play('idle', 0); ch.overlay('aimR'); g.R.scene.add(ch.obj);
+      const nozzle = p.clone().add(new THREE.Vector3(0, 1.3, 0)).addScaledVector(n, -0.6);
+      const target = new THREE.Vector3(f.cx + (k - 1) * 4, f.H * 0.6, f.cz); const dir = target.clone().sub(nozzle).normalize();
+      const drops = [];
+      for (let j = 0; j < 40; j++) { const d = new THREE.Mesh(new THREE.SphereGeometry(0.06, 4, 3), new THREE.MeshBasicMaterial({ color: 0xcfe6ff, transparent: true, opacity: 0.7 })); d.position.copy(nozzle); d.userData = { v: dir.clone().multiplyScalar(14), t: Math.random() * 1.2 }; g.R.scene.add(d); drops.push(d); }
+      f.crew.push({ ch, nozzle, dir, drops, t: 0 });
+    }
+  }
+  endFire(f) {
+    const g = this.g; g.R.scene.remove(f.grp);
+    for (const c of f.crew) { g.R.scene.remove(c.ch.obj); for (const d of c.drops) g.R.scene.remove(d); }
+    if (f.truck) g.traffic.remove(f.truck.ai);
+    this.fires.splice(this.fires.indexOf(f), 1);
+  }
+
   update(dt) {
     const g = this.g;
     if (g.time > this.nextCrime) { this.nextCrime = g.time + 150 + Math.random() * 180; if (!g.net || !g.net.connected || g.net.host) this.startCarTheft(); }
     if (g.time > this.nextIncident) { this.nextIncident = g.time + 120 + Math.random() * 150; if (!g.net || !g.net.connected || g.net.host) this.incident(); }
-    this.updateThieves(dt); this.updateIncidents(dt); this.updateSkids(); this.updateBirds(dt);
+    if (g.time > this.nextFire) { this.nextFire = g.time + 300 + Math.random() * 300; if (!g.net || !g.net.connected || g.net.host) this.startFire(); }
+    this.updateThieves(dt); this.updateIncidents(dt); this.updateSkids(); this.updateBirds(dt); this.updateFires(dt);
   }
+}
+
+function flameTexture() {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 96, 2, 32, 80, 60); gr.addColorStop(0, 'rgba(255,255,220,1)'); gr.addColorStop(0.25, 'rgba(255,200,80,.95)'); gr.addColorStop(0.55, 'rgba(255,90,20,.7)'); gr.addColorStop(1, 'rgba(120,20,0,0)');
+  g.fillStyle = gr; g.beginPath(); g.moveTo(32, 4); g.quadraticCurveTo(62, 70, 50, 120); g.lineTo(14, 120); g.quadraticCurveTo(2, 70, 32, 4); g.fill();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function smokeTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 2, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,.8)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
 }

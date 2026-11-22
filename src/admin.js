@@ -38,6 +38,9 @@ export class Admin {
       this.btn('Police désactivée : ' + (this.noPolice ? 'OUI' : 'non'), () => { this.noPolice = !this.noPolice; if (this.noPolice) { g.police.wanted = 0; g.police.renderStars(); } }, this.noPolice),
       this.btn('Recherché ★★★★★', () => g.police.addWanted(5, 'admin', true)), this.btn('Effacer les étoiles', () => { g.police.wanted = 0; g.police.renderStars(); }),
       this.btn('+15 voitures en circulation', () => { for (let k = 0; k < 15; k++) { const e = W.edges[Math.floor(Math.random() * W.edges.length)]; const ai = g.traffic.newCar(); ai.edge = e; ai.t = W.RW + 3; ai.state = 'drive'; ai.v = 8; g.traffic.wander(ai); } }),
+      this.btn('🔥 Déclencher un incendie proche', () => g.living.startFire()),
+      this.btn('🚗 Déclencher un vol de voiture (PNJ)', () => g.living.startCarTheft()),
+      this.btn('🌧 Météo : orage', () => g.weather.set('storm')), this.btn('☀ Météo : dégagé', () => g.weather.set('clear')),
       this.btn('Temps x10 : ' + (g.timeScale > 30 ? 'OUI' : 'non'), () => { g.timeScale = g.timeScale > 30 ? 30 : 300; }, g.timeScale > 30),
     ];
     if (tab === 'véhicules') rows = CATALOG.map(c => this.btn('Faire apparaître : ' + c.name, () => {

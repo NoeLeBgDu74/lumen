@@ -176,6 +176,27 @@ function makeAimClip(work, kind) {
   return new THREE.AnimationClip('aim_' + kind, 1, tracks);
 }
 
+// Pose fixe générique : liste [os, enfant, direction monde] appliquée depuis la T-pose. full = toutes les articulations.
+function makePose(work, name, list, full = false) {
+  const B = bonesOf(work);
+  for (const [, b] of B) if (b.userData.rest) b.quaternion.copy(b.userData.rest);
+  work.updateMatrixWorld(true);
+  const wq = (b) => b.getWorldQuaternion(new THREE.Quaternion()), wp = (b) => b.getWorldPosition(new THREE.Vector3());
+  // bras le long du corps par défaut pour les poses complètes
+  const base = full ? [['RightArm', 'RightForeArm', new THREE.Vector3(-0.15, -1, 0.05)], ['LeftArm', 'LeftForeArm', new THREE.Vector3(0.15, -1, 0.05)]] : [];
+  const touched = new Set();
+  for (const [n, c, dir] of [...base, ...list]) {
+    const b = B.get(n), ch = B.get(c); if (!b || !ch) continue;
+    const cur = wp(ch).sub(wp(b)).normalize();
+    const nw = new THREE.Quaternion().setFromUnitVectors(cur, dir.clone().normalize()).multiply(wq(b));
+    b.quaternion.copy(wq(b.parent).invert().multiply(nw)); work.updateMatrixWorld(true); touched.add(b);
+  }
+  const tracks = [];
+  for (const [, b] of B) { if (!full && !touched.has(b)) continue; const q = b.quaternion; tracks.push(new THREE.QuaternionKeyframeTrack(b.name.replace(/[\[\]\.:\/]/g, '') + '.quaternion', [0, 1], [q.x, q.y, q.z, q.w, q.x, q.y, q.z, q.w])); }
+  for (const [, b] of B) if (b.userData.rest) b.quaternion.copy(b.userData.rest);
+  return new THREE.AnimationClip(name, 1, tracks);
+}
+
 const bases = {};
 export async function loadCharBase(id) {
   if (bases[id]) return bases[id];
@@ -194,6 +215,17 @@ export async function loadCharBase(id) {
   clips.sit = makeSitClip(work, tRest);
   clips.cuffed = makeCuffClip(work);
   clips.aimP = makeAimClip(work, 'pistol'); clips.aimR = makeAimClip(work, 'rifle');
+  // poses d'actions (construites depuis la T-pose)
+  const P = (n, list) => { clips[n] = makePose(work, n, list); };
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  P('reach', [['RightArm', 'RightForeArm', V(-0.25, -0.35, 0.9)], ['RightForeArm', 'RightHand', V(-0.1, 0.0, 1)], ['LeftArm', 'LeftForeArm', V(0.15, -1, 0.1)], ['LeftForeArm', 'LeftHand', V(0.05, -1, 0.15)]]);
+  P('crouch', [['LeftUpLeg', 'LeftLeg', V(0.15, -0.25, 1)], ['LeftLeg', 'LeftFoot', V(0, -1, -0.35)], ['RightUpLeg', 'RightLeg', V(-0.2, -0.95, 0.2)], ['RightLeg', 'RightFoot', V(0, -0.2, -1)],
+    ['Spine', 'Spine1', V(0, 1, 0.35)], ['RightArm', 'RightForeArm', V(-0.2, -0.75, 0.6)], ['RightForeArm', 'RightHand', V(0, -0.2, 1)], ['LeftArm', 'LeftForeArm', V(0.2, -0.75, 0.6)], ['LeftForeArm', 'LeftHand', V(0, -0.2, 1)]], true);
+  P('relax', [['LeftUpLeg', 'LeftLeg', V(0.1, 0.05, 1)], ['LeftLeg', 'LeftFoot', V(0, -1, 0.15)], ['RightUpLeg', 'RightLeg', V(-0.1, 0.05, 1)], ['RightLeg', 'RightFoot', V(0, -1, 0.15)],
+    ['Spine', 'Spine1', V(0, 1, -0.25)], ['RightArm', 'RightForeArm', V(-0.25, -0.9, 0.3)], ['RightForeArm', 'RightHand', V(0.2, -0.3, 1)], ['LeftArm', 'LeftForeArm', V(0.25, -0.9, 0.3)], ['LeftForeArm', 'LeftHand', V(-0.2, -0.3, 1)]], true);
+  P('handsHead', [['RightArm', 'RightForeArm', V(-0.6, 0.75, 0.1)], ['RightForeArm', 'RightHand', V(0.6, 0.5, 0.2)], ['LeftArm', 'LeftForeArm', V(0.6, 0.75, 0.1)], ['LeftForeArm', 'LeftHand', V(-0.6, 0.5, 0.2)]]);
+  P('lie', [['RightArm', 'RightForeArm', V(-0.3, -1, 0)], ['LeftArm', 'LeftForeArm', V(0.3, -1, 0)]], true);
+  if (!clips.wave) P('wave', [['RightArm', 'RightForeArm', V(-0.5, 0.85, 0.1)], ['RightForeArm', 'RightHand', V(-0.1, 1, 0.1)]]);
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root);
   bases[id] = { root, scale: 1.72 / (box.max.y - box.min.y), minY: box.min.y, clips, def };

@@ -151,7 +151,7 @@ export class Police {
   }
   // Poursuite d'un véhicule volé par un PNJ
   chaseCar(u, dt) {
-    const g = this.g, ai = u.ai, tg = u.target.pos;
+    const g = this.g, ai = u.ai, tg = u.target.pos; if (!u.target.car && u.target.pos && ai.pos.distanceTo(tg) < 3) { ai.v = 0; poseCar(ai.car, { spin: ai.spin, brake: true, head: 1 }); const ph0 = Math.floor(g.time * 6) % 2; u.red.emissiveIntensity = ph0 ? 12 : 0; u.blue.emissiveIntensity = ph0 ? 0 : 12; return; }
     const to = tg.clone().sub(ai.pos); to.y = 0; const dist = to.length();
     const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
     ai.heading += THREE.MathUtils.clamp(dh, -1.8 * dt * (1 + ai.v / 20), 1.8 * dt * (1 + ai.v / 20));

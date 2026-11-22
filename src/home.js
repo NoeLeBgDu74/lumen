@@ -42,7 +42,8 @@ export class HomeInterior {
     const fridge = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.85, 0.66), new THREE.MeshStandardMaterial({ color: 0xd8dadd, metalness: 0.6, roughness: 0.25 })); fridge.position.set(-W_ / 2 + 3.7, 0.925, D_ / 2 - 0.34); G.add(fridge);
     // salle de bain : douche vitrée
     const glassM = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, roughness: 0.05 });
-    const sh = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.1, 0.02), glassM); sh.position.set(W_ / 2 - 1.2, 1.05, -D_ / 2 + 1.2); G.add(sh);
+    const sh = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.1, 0.02), glassM); sh.position.set(W_ / 2 - 1.2, 1.05, -D_ / 2 + 1.2); G.add(sh); this.showerGlass = glassM;
+    this.steam = new THREE.Group(); for (let k = 0; k < 14; k++) { const sp = new THREE.Mesh(new THREE.SphereGeometry(0.25 + Math.random() * 0.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false })); sp.position.set(W_ / 2 - 1.2 + (Math.random() - 0.5) * 0.9, 0.8 + Math.random() * 1.6, -D_ / 2 + 0.6 + (Math.random() - 0.5) * 0.8); this.steam.add(sp); } G.add(this.steam);
     // lumières
     const amb = new THREE.HemisphereLight(0xfff4e6, 0x403528, 0.55); G.add(amb);
     for (const [x, z] of [[-2.5, 0], [2.2, 1.5], [-W_ / 2 + 1.7, D_ / 2 - 1]]) { const l = new THREE.PointLight(0xffd9a8, 5, 9, 1.6); l.position.set(x, H_ - 0.25, z); G.add(l);
@@ -69,28 +70,70 @@ export class HomeInterior {
     const S = (x, z, label, act) => this.spots.push({ p: new THREE.Vector3(O.x + x, 0, O.z + z), label, act });
     S(3.0, 0.5, 'Dormir', 'sleep'); S(-2.6, 0.9, 'Regarder la télé', 'tv'); S(-W_ / 2 + 1.7, D_ / 2 - 1.0, 'Cuisiner et manger', 'cook');
     S(W_ / 2 - 1.2, -D_ / 2 + 1.9, 'Prendre une douche', 'shower'); S(-W_ / 2 + 0.8, -1.6, 'Dressing : changer de tenue', 'wardrobe'); S(0, -D_ / 2 + 0.9, 'Sortir', 'exit');
+    const lk = { p: new THREE.Vector3(O.x + 0.9, 0, O.z - D_ / 2 + 0.9), label: 'Verrouiller', act: 'lock', labelFn: () => (this.g.life.s.homeLocked ? '🔒 Déverrouiller la porte' : '🔓 Verrouiller la porte à clé') }; this.spots.push(lk);
     this.door = new THREE.Vector3(O.x, 0, O.z - D_ / 2 + 0.9);
+    // porte d'entrée battante (charnière à gauche) + poignée + serrure
+    const frameM = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 });
+    const fr = new THREE.Mesh(new THREE.BoxGeometry(1.15, 2.2, 0.12), frameM); fr.position.set(0, 1.1, -D_ / 2 + 0.03); fr.scale.x = 1; G.add(fr);
+    this.doorPivot = new THREE.Group(); this.doorPivot.position.set(-0.45, 0, -D_ / 2 + 0.08); G.add(this.doorPivot);
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.08, 0.05), M.door || new THREE.MeshStandardMaterial({ color: 0x5a3a24 })); leaf.position.set(0.45, 1.04, 0.03); leaf.castShadow = true; this.doorPivot.add(leaf);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), new THREE.MeshStandardMaterial({ color: 0xc9a45a, metalness: 1, roughness: 0.3 })); knob.position.set(0.8, 1.0, 0.09); this.doorPivot.add(knob);
+    this.lockLed = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.02), new THREE.MeshBasicMaterial({ color: 0x33ff66 })); this.lockLed.position.set(0.8, 1.2, 0.08); this.doorPivot.add(this.lockLed);
+    this.doorAngle = 0; this.doorTarget = 0;
   }
   async enter() {
     await this.build();
-    const g = this.g, f = document.getElementById('fade'); f.style.opacity = 1; await wait(500);
+    const g = this.g, f = document.getElementById('fade');
+    // dehors : on pousse la porte de l'immeuble
+    await g.actions.run({ arms: 'reach', dur: 0.7 }); this.click();
+    f.style.opacity = 1; await wait(500);
     this.outside = g.player.pos.clone(); this.outsideYaw = g.player.yaw;
     this.cityWorld = g.player.world; g.player.world = this.world; g.world = this.world;
     this.group.visible = true; this.inside = true; g.interiorRoom = true;
     g.player.place(this.door.x, this.door.z + 0.5, 0); g.player.camYaw = Math.PI; g.player.camDist = 2.6;
     this.winMat.color.setHSL(0.6, 0.4, 0.25 + (1 - g.sky.night) * 0.6);
+    this.doorAngle = this.doorTarget = -1.45; this.doorPivot.rotation.y = this.doorAngle;
+    g.player.place(this.door.x, this.door.z - 0.6, 0);
     await wait(300); f.style.opacity = 0;
+    await g.actions.run({ to: new THREE.Vector3(this.door.x, 0, this.door.z + 0.8), face: Math.PI, dur: 0.1 });
+    this.doorTarget = 0; setTimeout(() => this.click(), 650); // la porte se referme derrière vous
   }
   async exit() {
     const g = this.g, f = document.getElementById('fade'); f.style.opacity = 1; await wait(500);
-    g.player.world = this.cityWorld; g.world = this.cityWorld; this.group.visible = false; this.inside = false; g.interiorRoom = false;
+    g.player.world = this.cityWorld; g.world = this.cityWorld; this.group.visible = false; this.inside = false; g.interiorRoom = false; this.doorTarget = this.doorAngle = 0;
     g.player.place(this.outside.x, this.outside.z, this.outsideYaw + Math.PI); g.player.camDist = 4.2;
     await wait(300); f.style.opacity = 0;
   }
+  update(dt) {
+    if (!this.doorPivot) return;
+    this.doorAngle += (this.doorTarget - this.doorAngle) * Math.min(1, dt * 5); this.doorPivot.rotation.y = this.doorAngle;
+    this.lockLed.material.color.setHex(this.g.life.s.homeLocked ? 0xff3333 : 0x33ff66);
+  }
+  click() { try { const c = this.ac || (this.ac = new (window.AudioContext || window.webkitAudioContext)()); const o = c.createOscillator(), gn = c.createGain(); o.type = 'square'; o.frequency.value = 900; gn.gain.value = 0.05; gn.gain.setTargetAtTime(0, c.currentTime + 0.03, 0.02); o.connect(gn); gn.connect(c.destination); o.start(); o.stop(c.currentTime + 0.12); } catch (e) {} }
   nearest(pos) { let b = null, bd = 1.6; for (const s of this.spots) { const d = s.p.distanceTo(new THREE.Vector3(pos.x, 0, pos.z)); if (d < bd) { bd = d; b = s; } } return b; }
-  act(s) {
-    const g = this.g, L = g.life, st = L.s;
-    if (s.act === 'exit') return this.exit();
+  async act(s) {
+    const g = this.g, L = g.life, st = L.s, A = g.actions, O = ORIGIN;
+    if (s.act === 'lock') { await A.run({ to: s.p.clone(), face: Math.PI, arms: 'reach', dur: 0.9 }); st.homeLocked = !st.homeLocked; this.click(); L.notify(st.homeLocked ? '🔒 Porte verrouillée à clé' : '🔓 Porte déverrouillée'); L.save(); return; }
+    if (s.act === 'exit') {
+      await A.run({ to: s.p.clone(), face: Math.PI, arms: 'reach', dur: 0.6 });
+      if (st.homeLocked) { this.click(); st.homeLocked = false; L.notify('🔓 Vous déverrouillez la porte'); await new Promise(r => setTimeout(r, 400)); }
+      this.doorTarget = -1.45; await new Promise(r => setTimeout(r, 700));
+      await A.run({ to: new THREE.Vector3(O.x, 0, O.z - D_ / 2 - 0.3), face: Math.PI, dur: 0.1 });
+      return this.exit();
+    }
+    if (s.act === 'sleep') await A.run({ to: new THREE.Vector3(O.x + 3.0, 0, O.z + 0.9), face: 0, pose: 'lie', lie: { y: 0.62 }, dur: 1.8, camDist: 3.5 });
+    if (s.act === 'tv') await A.run({ to: new THREE.Vector3(O.x - 2.6, 0, O.z + 1.25), face: Math.PI, pose: 'relax', offsetY: -0.48, dur: 2.2 });
+    if (s.act === 'cook') await A.run({ to: new THREE.Vector3(O.x - W_ / 2 + 1.7, 0, O.z + D_ / 2 - 0.95), face: 0, arms: 'reach', dur: 2.5 });
+    if (s.act === 'shower') {
+      // vitre embuée + vapeur : on ne voit plus le personnage pendant la douche
+      await A.run({ to: new THREE.Vector3(O.x + W_ / 2 - 1.2, 0, O.z - D_ / 2 + 0.8), face: Math.PI, arms: 'handsHead', dur: 3.2, onStart: () => {
+        this.showerGlass.opacity = 0.93; this.showerGlass.roughness = 0.9; g.player.char.obj.visible = false;
+        this.steam.children.forEach((m, i) => { m.material.opacity = 0.35; m.userData.v = 0.2 + Math.random() * 0.3; });
+      } });
+      g.player.char.obj.visible = true; this.showerGlass.opacity = 0.25; this.showerGlass.roughness = 0.05;
+      setTimeout(() => this.steam.children.forEach(m => m.material.opacity = 0), 2500);
+    }
+    if (s.act === 'wardrobe') await A.run({ to: s.p.clone(), face: -Math.PI / 2, arms: 'reach', dur: 0.8 });
     if (s.act === 'sleep') { const h = g.hour, dur = h < 7 ? 7 - h : 31 - h; return L.skip(dur, () => { st.needs.energie = 100; st.needs.faim = Math.max(0, st.needs.faim - dur * 2); }); }
     if (s.act === 'tv') return L.skip(1, () => { st.needs.moral = Math.min(100, st.needs.moral + 12); });
     if (s.act === 'cook') { if (st.food < 1) return L.notify('Frigo vide : faites des courses', 'warn'); st.food--; L.feed(65); return L.notify('Bon appétit ! (' + st.food + ' repas restants)'); }

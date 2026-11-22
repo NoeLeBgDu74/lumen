@@ -23,6 +23,9 @@ import { Admin } from './admin.js';
 import { Living } from './living.js';
 import { Weather } from './weather.js';
 import { HomeInterior } from './home.js';
+import { Actions } from './actions.js';
+import { Story } from './story.js';
+import { Audio } from './audio.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
 import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
 import { Places, PJOBS } from './places.js';
@@ -98,7 +101,7 @@ async function start() {
   game.minimap = new Minimap(game);
   game.peds = new Peds(game); game.peds.max = Math.max(6, R.q.npc - 4);
   game.markers = new Markers(scene);
-  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M); game.homeInt = new HomeInterior(game);
+  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M); game.homeInt = new HomeInterior(game); game.actions = new Actions(game); game.story = new Story(game); game.audio = new Audio(game);
   game.openWardrobe = () => { createCharacter(scene, player, camera).then(() => { setPlayerChar(scene, player, game.profile); }); };
   buildRadars(scene);
   { const ph = W.places.find(p => p.type === 'pharmacy'); window.__lwHospital = ph ? ph.door.p : null; }
@@ -160,6 +163,9 @@ async function start() {
     updateNight(city, sky);
     updateSignals(city, game.time);
     cull(city, camera, R.q.drawDist);
+    if (game.story) game.story.update(dt);
+    if (game.homeInt) game.homeInt.update(dt);
+    if (game.audio) game.audio.update(dt);
     if (input.pressed('Escape') || (game.talk && game.talk.open && game.escTalk)) { if (game.talk && game.talk.open) game.talk.close(); else toggleMenu(); }
     R.render(game.time);
     input.endFrame();
@@ -239,6 +245,7 @@ function ejectDriver(ai) {
   seatPose(ai.car, ch); ch.play('sit', 0); game.R.scene.add(ch.obj);
   fx.push({ ch, ai, owner, t: 0, from: ch.obj.position.clone(), door: doorPoint(ai.car) });
   if (owner) { game.pop.remember(owner, `s'est fait arracher de sa voiture par ${game.profile.first}`); owner.playerOpinion = -1; owner.car = null; }
+  setTimeout(() => game.audio.scream(owner ? owner.female : false), 500);
 }
 function fxUpdate(dt) {
   for (const f of [...fx]) {
@@ -277,7 +284,7 @@ function handsOnWheel(ch, car, steer) {
   for (const [sd, k] of [['Left', 1], ['Right', -1]]) {
     const A = bones[sd + 'Arm'], F = bones[sd + 'ForeArm'], H = bones[sd + 'Hand']; if (!A || !F || !H) continue;
     // point de la jante (rayon 0,17 m), tourné avec le volant
-    const local = side.clone().multiplyScalar(0.17 * k).applyAxisAngle(axis, steer * 6 + (k > 0 ? 0.25 : -0.25));
+    const local = side.clone().multiplyScalar(0.17 * k).applyAxisAngle(axis, -steer * 6 + (k > 0 ? 0.25 : -0.25));
     const T = car.obj.localToWorld(sw.position.clone().add(local));
     const S = A.getWorldPosition(new THREE.Vector3()), E0 = F.getWorldPosition(new THREE.Vector3()), H0 = H.getWorldPosition(new THREE.Vector3());
     const a = S.distanceTo(E0), b = E0.distanceTo(H0);
@@ -302,8 +309,13 @@ function aimBone(bone, childPos, target) {
 // Siège et tête du conducteur déduits du volant de chaque modèle (sinon valeurs par défaut).
 function seatOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y - 0.44, sw.position.z - 0.68) : SEAT.clone(); }
 function headOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y + 0.3, sw.position.z - 0.62) : HEAD.clone(); }
-function seatPose(car, ch) {
-  const ls = seatOf(car); const p = car.obj.localToWorld(ls.clone());
+function seatPose(car, ch, attach = false) {
+  const ls = seatOf(car);
+  if (attach || ch.obj.parent === car.obj) { // conducteur intégré à la voiture : suit roulis, tangage et virages
+    if (ch.obj.parent !== car.obj) car.obj.add(ch.obj);
+    ch.obj.position.set(ls.x, ls.y - ch.hipH + 0.05, ls.z); ch.obj.rotation.set(0, 0, 0); return;
+  }
+  const p = car.obj.localToWorld(ls.clone());
   ch.obj.position.set(p.x, p.y - ch.hipH + 0.05, p.z);
   ch.obj.rotation.set(0, car.obj.rotation.y, 0);
 }
@@ -348,6 +360,7 @@ function seqUpdate(dt) {
     pl.updateCamera(dt, pl.pos);
   } else { // sortie
     const v = game.veh, car = v.car; s.t += dt;
+    if (ch.obj.parent !== game.R.scene) game.R.scene.attach(ch.obj);
     if (!s.from) { s.from = ch.obj.position.clone(); s.dp = doorPoint(car); s.dp.y = pl.groundAt ? pl.groundAt : v.pos.y; ch.obj.visible = true; game.interior = false; }
     const k = Math.min(1, s.t / 1.1), e = k * k * (3 - 2 * k);
     ch.obj.position.lerpVectors(s.from, s.dp, e);
@@ -394,7 +407,7 @@ function driveUpdate(dt) {
   v.update(dt, { throttle: Math.max(0, f), brake: Math.max(0, -f), steer: -s, handbrake: inp.down('Space') });
   const ai = game.vehAI; ai.pos.copy(v.pos); ai.heading = v.heading; ai.v = Math.abs(v.vz);
   // conducteur visible, assis, mains au volant
-  const ch = pl.char; ch.play('sit', 0.3); ch.update(dt); seatPose(v.car, ch); handsOnWheel(ch, v.car, v.steer);
+  const ch = pl.char; ch.play('sit', 0.3); ch.update(dt); seatPose(v.car, ch, true); handsOnWheel(ch, v.car, v.steer);
   ch.obj.visible = !game.interior;
   const [mx, my, wh] = inp.consumeMouse();
   if (game.interior) {
@@ -428,7 +441,8 @@ function driveUpdate(dt) {
 function interactPrompt() {
   const el = $('prompt');
   if ((game.talk && game.talk.open) || game.life.panelOpen) { el.hidden = true; return; }
-  if (game.homeInt.inside) { const sp = game.homeInt.nearest(game.player.pos); el.hidden = !sp; if (sp) el.innerHTML = '<kbd>E</kbd>' + sp.label; return; }
+  if (game.homeInt.inside) { const sp = game.homeInt.nearest(game.player.pos); el.hidden = !sp; if (sp) el.innerHTML = '<kbd>E</kbd>' + (sp.labelFn ? sp.labelFn() : sp.label); return; }
+  if (game.story && game.story.near(game.player.pos)) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Commencer la mission'; return; }
   if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant') + ' &nbsp; <kbd>G</kbd>Voler'; return; } }
   if (!game.veh && !game.seq) { const pd = game.peds.nearest(game.player.pos); if (pd) { el.hidden = false; el.innerHTML = '<kbd>G</kbd>Voler ce passant'; return; } }
   if (!game.veh && !game.seq) { const pl = game.places.nearest(game.player.pos); if (pl) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>' + game.places.label(pl); return; } }
@@ -482,7 +496,7 @@ game.callTaxi = async (dest, label) => {
   const L = game.life, from = game.player.pos.clone(); const d = from.distanceTo(dest);
   const price = Math.round(4 + d * 0.0125 * 1.0 * 1.4);
   if (!L.money(-price, 'taxi vers ' + label)) return;
-  L.notify('🚕 Un taxi arrive…'); await new Promise(r => setTimeout(r, 2500));
+  L.notify('🚕 Vous hélez un taxi…'); await game.actions.run({ arms: 'wave', dur: 2.2 });
   await L.skip(d / 11 / 3600 * 1.0 + 0.05, () => { game.player.place(dest.x + 2, dest.z + 2, 0); });
   L.notify('🚕 Vous êtes arrivé·e : ' + label, 'ok');
 };
@@ -491,7 +505,7 @@ game.callTaxi = async (dest, label) => {
 function robNearest() {
   if (game.veh || game.seq) return;
   const pd = game.peds.nearest(game.player.pos, 2.4);
-  if (pd) { game.player.char.play('talk', 0.1); return game.peds.rob(pd); }
+  if (pd) { game.player.char.overlay('reach'); setTimeout(() => game.player.char.overlay(null), 700); return game.peds.rob(pd); }
   const n = game.pop.nearestTo(game.player.pos, 2.4);
   if (n) {
     const loot = 15 + Math.floor(Math.random() * 70); game.life.money(loot, 'vol à l’arraché');
@@ -507,11 +521,16 @@ function nearPump() {
   return st.pumps.some(pp => (pp.x - game.veh.pos.x) ** 2 + (pp.z - game.veh.pos.z) ** 2 < 9) && game.veh.kmh < 3;
 }
 function handleE() {
-  if (game.seq || game.life.panelOpen) return;
+  if (game.seq || game.life.panelOpen || game.actions.busy) return;
   if (game.homeInt.inside) { const sp = game.homeInt.nearest(game.player.pos); if (sp) game.homeInt.act(sp); return; }
+  if (game.story && game.story.near(game.player.pos)) return game.story.start();
   if (game.veh) { if (nearPump()) game.places.refuel(game.veh); return; }
   const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) return game.talk.start(n);
-  const pl = game.places.nearest(game.player.pos); if (pl) return game.places.open(pl);
+  const pl = game.places.nearest(game.player.pos);
+  if (pl) { // se placer devant la porte, tendre la main (pousser la porte / s'adresser au comptoir), puis ouvrir
+    const d = pl.door; const yaw = d.nrm ? Math.atan2(-d.nrm.x, -d.nrm.z) : game.player.yaw;
+    game.actions.run({ to: d.p.clone().setY(game.player.pos.y), face: yaw, arms: 'reach', dur: 0.7 }).then(() => game.places.open(pl));
+  }
 }
 function freeSpotNear(ref, curbOnly) {
   let best = null, bd = Infinity;
@@ -527,10 +546,11 @@ game.spawnOwned = (idx, atDealer) => {
 game.despawnOwned = (idx) => { const ai = game.ownedAI[idx]; if (ai) { if (game.vehAI === ai) game.forceExit(); game.removeCar(ai); } game.ownedAI.splice(idx, 1); };
 game.spawnTempCar = (id, paint, near) => { const ai = game.traffic.newCar(id, paint); ai.temp = true; ai.ownerIsPlayer = true; game.traffic.parkAt(ai, freeSpotNear(near, true)); return ai; };
 game.removeCar = (ai) => game.traffic.remove(ai);
-game.forceExit = () => { if (!game.veh) return; const ch = game.player.char; ch.obj.position.copy(doorPoint(game.veh.car)); ch.obj.visible = true; game.interior = false; endDriving(); };
+game.forceExit = () => { if (!game.veh) return; const ch = game.player.char; if (ch.obj.parent !== game.R.scene) game.R.scene.attach(ch.obj); ch.obj.position.copy(doorPoint(game.veh.car)); ch.obj.visible = true; game.interior = false; endDriving(); };
 
 let pedHitT = 0;
 function gameplayUpdate(dt) {
+  game.actions.update(dt);
   const L = game.life; L.update(dt); game.places.update(dt); game.police.update(dt); game.net.update(dt);
   game.minimapT = (game.minimapT || 0) + dt; if (game.minimapT > 0.05) { game.minimapT = 0; game.minimap.draw(); }
   const v = game.veh; $('fuel').hidden = !v;
@@ -569,11 +589,11 @@ function gameplayUpdate(dt) {
         pedHitT = game.time; p.hurt = true; p.knockT = game.time; p.knockDir = new THREE.Vector3(Math.sin(v.heading), 0, Math.cos(v.heading)); p.resume = p.state === 'talk' ? 'walk' : p.state; p.state = 'talk'; p.talkUntil = game.time + 7;
         setTimeout(() => { p.hurt = false; }, 7000);
         game.pop.remember(p, `s'est fait renverser par ${game.profile.first}`); p.playerOpinion = -1; v.vz *= 0.7;
-        game.police.addWanted(2, 'piéton renversé');
+        game.police.addWanted(2, 'piéton renversé'); game.audio.scream(p.female);
       }
     }
   }
-  const cp = game.checkpoint;
+  const cp = game.checkpoint || game.storyMarker;
   game.cpMarker.visible = !!cp; if (cp) { game.cpMarker.position.set(cp.x, 20, cp.z); game.cpMarker.material.opacity = 0.16 + Math.sin(game.time * 3) * 0.06; }
   const m = game.places.mission;
   $('mission').hidden = !m && !game.gps;

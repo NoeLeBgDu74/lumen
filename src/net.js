@@ -230,7 +230,8 @@ export class Net {
     if (this.sendT > 0.08) {
       this.sendT = 0;
       const pl = g.player, v = g.veh, o = pl.char.obj;
-      const m = { t: 's', id: this.myId, x: o.position.x, y: o.position.y, z: o.position.z, yaw: o.rotation.y, anim: pl.char.cur ? pl.char.cur.getClip().name : 'idle', w: g.police.wanted, v: o.visible || v ? 1 : 0 };
+      const wp = o.getWorldPosition(new THREE.Vector3()), wq = new THREE.Euler().setFromQuaternion(o.getWorldQuaternion(new THREE.Quaternion()), 'YXZ');
+      const m = { t: 's', id: this.myId, x: wp.x, y: wp.y, z: wp.z, yaw: wq.y, anim: pl.char.cur ? pl.char.cur.getClip().name : 'idle', w: g.police.wanted, v: o.visible || v ? 1 : 0 };
       if (!this._helloSent || this._helloT++ > 50) { m.hello = this.hello(); this._helloSent = true; this._helloT = 0; }
       if (v) m.car = { tid: g.vehAI && g.vehAI.id, id: v.car.tpl.spec.id, paint: v.car.paint ? '#' + v.car.paint.color.getHexString() : '#ffffff', x: v.pos.x, z: v.pos.z, h: v.heading, st: v.steer, sp: v.spin, b: v.brake ? 1 : 0 };
       this.send(m);

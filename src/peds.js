@@ -50,9 +50,19 @@ export class Peds {
 
   nearest(pos, r = 2.2) { let b = null, bd = r * r; for (const p of this.list) { if (p.state === 'down') continue; const d = p.pos.distanceToSquared(pos); if (d < bd) { bd = d; b = p; } } return b; }
 
-  knock(p, dir) { p.state = 'down'; p.t = 0; p.fall = dir.clone().setY(0).normalize(); p.ch.play('idle', 0.1); }
+  // Percuté : projeté selon la vitesse (par-dessus le capot au-delà de ~30 km/h), culbute, retombe, reste au sol puis se relève.
+  knock(p, dir, kmh = 25) {
+    const v = Math.max(3, kmh / 3.6);
+    p.state = 'down'; p.t = 0; p.fall = dir.clone().setY(0).normalize();
+    p.vel = p.fall.clone().multiplyScalar(v * (kmh > 30 ? 0.75 : 0.55)).add(new THREE.Vector3((Math.random() - 0.5) * 1.5, kmh > 30 ? 2 + v * 0.22 : 1.2, (Math.random() - 0.5) * 1.5));
+    p.spinV = (kmh > 30 ? 9 : 5) * (0.7 + Math.random() * 0.6); p.tumble = 0; p.airY = 0; p.landed = false;
+    p.downFor = 4 + Math.min(10, kmh / 6);
+    p.ch.play('idle', 0.1); p.ch.overlay(null);
+    this.g.audio && (this.g.audio.burst(0.18, 380, 0.5), this.g.audio.scream(p.female));
+  }
   rob(p) {
-    const g = this.g; p.state = 'flee'; p.t = 0; p.ch.play('run', 0.2);
+    const g = this.g; p.state = 'handsup'; p.t = 0; p.ch.play('idle', 0.1); p.ch.overlay('handsHead'); g.audio && g.audio.scream(p.female, 0.12);
+    p.heading = Math.atan2(g.player.pos.x - p.pos.x, g.player.pos.z - p.pos.z);
     p.fall = p.pos.clone().sub(g.player.pos).setY(0).normalize();
     g.life.money(p.money, 'vol à l’arraché'); p.money = 0;
     if (Math.random() < 0.5) g.police.addWanted(1, 'vol');
@@ -72,24 +82,35 @@ export class Peds {
         if (d < 0.3) this.pick(p);
         else { const st = Math.min(d, p.speed * dt); p.pos.addScaledVector(to.normalize(), st); const h = Math.atan2(to.x, to.z); let dh = h - p.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); p.heading += dh * Math.min(1, dt * 8); }
         p.ch.play('walk', 0.3, p.speed / 1.4);
+      } else if (p.state === 'handsup') {
+        if (p.t > 1.6) { p.ch.overlay(null); p.state = 'flee'; p.t = 0; p.ch.play('run', 0.2); g.audio && g.audio.scream(p.female, 0.15); }
       } else if (p.state === 'flee') {
         const nx = p.pos.x + p.fall.x * 5 * dt, nz = p.pos.z + p.fall.z * 5 * dt; const r = g.world.resolve(nx, nz, 0.3); p.pos.set(r.x, 0, r.z); if (r.hit) p.fall.applyAxisAngle(new THREE.Vector3(0, 1, 0), 1);
         p.heading = Math.atan2(p.fall.x, p.fall.z); p.ch.play('run', 0.25);
         if (p.t > 8) { this.release(p); this.list.splice(this.list.indexOf(p), 1); continue; }
       } else if (p.state === 'down') {
-        // chute : projeté puis allongé au sol, se relève et s'enfuit
-        const k = Math.min(1, p.t / 0.5);
-        if (p.t < 0.5) p.pos.addScaledVector(p.fall, dt * 6 * (1 - k));
-        p.ch.obj.rotation.set(-Math.PI / 2 * Math.min(1, p.t / 0.35) * (p.t < 6 ? 1 : Math.max(0, 1 - (p.t - 6) / 0.6)), p.heading, 0, 'YXZ');
-        if (p.t > 6.6) { p.state = 'flee'; p.t = 0; p.ch.obj.rotation.set(0, p.heading, 0); }
+        if (!p.vel) p.vel = new THREE.Vector3();
+        if (!p.landed) { // vol balistique + culbute
+          p.vel.y -= 9.8 * dt; p.airY = Math.max(0, p.airY + p.vel.y * dt);
+          const r = g.world.resolve(p.pos.x + p.vel.x * dt, p.pos.z + p.vel.z * dt, 0.3); if (r.hit) { p.vel.x *= -0.3; p.vel.z *= -0.3; }
+          p.pos.x = r.x; p.pos.z = r.z; p.tumble += p.spinV * dt;
+          if (p.airY <= 0 && p.vel.y < 0) { if (Math.abs(p.vel.y) > 3) { p.vel.y = -p.vel.y * 0.25; p.vel.x *= 0.5; p.vel.z *= 0.5; this.g.audio && this.g.audio.burst(0.1, 300, 0.3); } else { p.landed = true; p.t = 0; p.lieYaw = Math.atan2(p.fall.x, p.fall.z); } }
+          const k = (p.tumble % (Math.PI * 2));
+          p.ch.obj.rotation.set(-k, p.heading, 0, 'YXZ');
+        } else { // glisse puis allongé
+          p.vel.multiplyScalar(Math.pow(0.02, dt)); p.pos.x += p.vel.x * dt; p.pos.z += p.vel.z * dt;
+          const up = p.t > p.downFor ? Math.min(1, (p.t - p.downFor) / 0.8) : 0;
+          p.ch.obj.rotation.set(-Math.PI / 2 * (1 - up), p.lieYaw, 0, 'YXZ');
+          if (p.t > p.downFor + 0.8) { p.state = 'flee'; p.t = 0; p.ch.obj.rotation.set(0, p.heading, 0); p.vel = null; }
+        }
       }
-      p.pos.y = groundY(p.pos.x, p.pos.z) + (p.state === 'down' && p.t < 6 ? 0.12 : 0);
+      p.pos.y = groundY(p.pos.x, p.pos.z) + (p.state === 'down' ? (p.landed ? 0.12 : 0.9 + (p.airY || 0)) : 0);
       p.ch.obj.position.copy(p.pos);
       if (p.state !== 'down') p.ch.obj.rotation.y = p.heading;
       p.ch.update(dt, dist);
       // percuté par la voiture du joueur
       if (g.veh && p.state !== 'down' && g.veh.kmh > 15 && p.pos.distanceTo(g.veh.pos) < 1.9) {
-        this.knock(p, new THREE.Vector3(Math.sin(g.veh.heading), 0, Math.cos(g.veh.heading)));
+        this.knock(p, new THREE.Vector3(Math.sin(g.veh.heading), 0, Math.cos(g.veh.heading)), g.veh.kmh);
         g.veh.vz *= 0.85; g.police.addWanted(Math.random() < 0.6 ? 1 : 2, 'piéton renversé');
       }
     }

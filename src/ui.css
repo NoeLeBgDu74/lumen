@@ -142,3 +142,13 @@ html, body { margin:0; height:100%; overflow:hidden; background:#0b0c0f; color:v
 
 #stambox { position:absolute; left:50%; bottom:64px; width:160px; height:4px; margin-left:-80px; border-radius:3px; background:rgba(255,255,255,.15); overflow:hidden; opacity:0; transition:opacity .4s; }
 #stamina { display:block; height:100%; width:100%; background:#8fd3ff; }
+
+#cine { position:fixed; inset:0; pointer-events:none; z-index:34; }
+#cine .bar { position:absolute; left:0; right:0; height:0; background:#000; transition:height .6s; }
+#cine .top { top:0; } #cine .bot { bottom:0; }
+#cine.on .bar { height:11vh; }
+#sub { position:absolute; left:50%; bottom:13vh; transform:translateX(-50%); max-width:min(820px,90vw); text-align:center; font-size:clamp(15px,1.6vw,20px); line-height:1.45; text-shadow:0 2px 6px #000, 0 0 2px #000; opacity:0; transition:opacity .3s; }
+#cine.on #sub { opacity:1; } #sub b { color:#ffd68a; margin-right:6px; }
+#chap { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; opacity:0; transition:opacity .8s; }
+#chap.on { opacity:1; } #chap b { font-size:clamp(34px,6vw,72px); font-weight:800; letter-spacing:.12em; background:linear-gradient(180deg,#ffe7a3,#ff5e7e 60%,#8a4dff); -webkit-background-clip:text; color:transparent; text-shadow:none; }
+#chap span { margin-top:8px; letter-spacing:.3em; text-transform:uppercase; font-size:13px; color:#fff; text-shadow:0 2px 6px #000; }

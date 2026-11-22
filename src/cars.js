@@ -53,6 +53,12 @@ export async function loadCarTemplate(id) {
       wheels[k] = { steer, spin, radius: (wb.max.y - wb.min.y) / 2, pos: wc.clone() };
     }
     // volant
+    // calage au sol sur le bas des roues (certains modèles contiennent des pièces parasites sous la caisse)
+    const wl0 = Object.values(wheels);
+    if (wl0.length) {
+      const lowest = Math.min(...wl0.map(w => w.pos.y - w.radius));
+      if (Math.abs(lowest) > 0.03) { for (const ch of root.children) ch.position.y -= lowest; for (const w of wl0) w.pos.y -= lowest; root.updateMatrixWorld(true); }
+    }
     // volant : centre et axe de rotation déduits de la géométrie (plan de la jante = plus petite variance)
     for (const m of meshes) if (/Steering/i.test(m.name)) {
       const pos = m.geometry.attributes.position, v = new THREE.Vector3(), pts = [];
@@ -168,7 +174,7 @@ export function poseCar(car, { spin = 0, steer = 0, brake = false, reverse = fal
     if (k[0] === 'F') w.steer.rotation.y = steer;
   }
   if (car.steeringWheel) {
-    const a = car.steeringWheel.userData.axis; if (a) { SW_TMP.fromArray(a); car.steeringWheel.quaternion.setFromAxisAngle(SW_TMP, steer * 6); }
+    const a = car.steeringWheel.userData.axis; if (a) { SW_TMP.fromArray(a); car.steeringWheel.quaternion.setFromAxisAngle(SW_TMP, -steer * 6); }
   }
   for (const m of car.lights.head) m.emissiveIntensity = head * 4;
   for (const m of car.lights.brake) m.emissiveIntensity = brake ? 6 : head * 1.6;

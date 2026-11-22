@@ -161,7 +161,7 @@ export class Combat {
     this.shell(muzzle);
     this.bang();
     g.police.addWanted(best ? 3 : 2, 'coups de feu');
-    for (const p of g.peds.list) if (p.state === 'walk' && p.pos.distanceTo(P.pos) < 50) { p.state = 'flee'; p.t = 0; p.fall = p.pos.clone().sub(P.pos).setY(0).normalize(); }
+    let sc = 0; for (const p of g.peds.list) if (p.state === 'walk' && p.pos.distanceTo(P.pos) < 50) { p.state = 'flee'; p.t = 0; p.fall = p.pos.clone().sub(P.pos).setY(0).normalize(); if (sc++ < 2 && g.audio) setTimeout(() => g.audio.scream(p.female, 0.1), 200 + Math.random() * 600); }
     for (const p of g.pop.people) if (p.char && p.pos.distanceTo(P.pos) < 40 && !p.hurt) { p.panicUntil = g.time + 10; }
   }
   impact(p) {
