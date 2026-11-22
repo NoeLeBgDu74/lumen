@@ -207,6 +207,9 @@ export class Living {
       const T = f.truck;
       if (T) {
         const ai = T.ai, dest = f.pl.door.p.clone().add(f.pl.door.nrm.clone().multiplyScalar(9));
+        T.age = (T.age || 0) + dt;
+        // repli : s'il ne trouve pas son chemin, le camion se gare devant le feu (de préférence hors de la vue du joueur)
+        if (T.age > 22 && ai.pos.distanceTo(dest) > 3 && (ai.pos.distanceTo(g.player.pos) > 50 || T.age > 40)) { ai.pos.copy(dest); ai.heading = Math.atan2(-f.pl.door.nrm.x, -f.pl.door.nrm.z) + Math.PI / 2; ai.v = 0; }
         const to = dest.clone().sub(ai.pos); to.y = 0; const dist = to.length();
         if (dist > 2) {
           const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
