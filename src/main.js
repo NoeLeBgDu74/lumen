@@ -15,6 +15,7 @@ import * as W from './world.js';
 import { Traffic } from './traffic.js';
 import { Vehicle } from './vehicle.js';
 import { Population } from './npc.js';
+import { Talk, getKey, setKey } from './talk.js';
 
 async function loadCharBase(id) { const b = await loadCharBase0(id); charCache[id] = b; return b; }
 const $ = (id) => document.getElementById(id);
@@ -67,7 +68,10 @@ async function start() {
   setLoad(0.85, 'Habitants : emplois du temps, relations…'); await tick();
   const pop = game.pop = new Population(scene, traffic, charCache, game);
   pop.maxVisible = R.q.npc;
-  pop.generate(170);
+  // population déterministe : mêmes habitants à chaque partie (mémoire des conversations cohérente)
+  const mr = Math.random; let seed = 777; Math.random = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) % 1e9) / 1e9; };
+  try { pop.generate(170); } finally { Math.random = mr; }
+  game.talk = new Talk(game);
   setLoad(0.9, 'Compilation des shaders…'); await tick();
   sky.hour = game.hour; sky.update(0, camera, 0);
   player.update(0.016, input); player.updateCamera(1, player.pos);
@@ -93,6 +97,7 @@ async function start() {
       game.hour += dt * game.timeScale * (input.down('KeyT') ? 30 : 1) / 3600;
       if (game.hour >= 24) { game.hour -= 24; game.day++; }
       if (input.pressed('KeyF')) toggleCar();
+      if (input.pressed('KeyE') && !game.veh && !game.seq) { const n = pop.nearestTo(player.pos, 2.6); if (n) game.talk.start(n); }
       if (game.seq) seqUpdate(dt);
       else if (game.veh) driveUpdate(dt);
       else { player.update(dt, input); player.updateCamera(dt, player.pos); }
@@ -108,7 +113,7 @@ async function start() {
     updateNight(city, sky);
     updateSignals(city, game.time);
     cull(city, camera, R.q.drawDist);
-    if (input.pressed('Escape')) toggleMenu();
+    if (input.pressed('Escape') || (game.talk && game.talk.open && game.escTalk)) { if (game.talk && game.talk.open) game.talk.close(); else toggleMenu(); }
     R.render(game.time);
     input.endFrame();
     hud(); fpsAcc += dt; fpsN++;
@@ -279,6 +284,8 @@ function driveUpdate(dt) {
 }
 function interactPrompt() {
   const el = $('prompt');
+  if (game.talk && game.talk.open) { el.hidden = true; return; }
+  if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant'); return; } }
   if (!game.veh) { const ai = nearestCar(); if (ai) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans ' + ai.tpl.spec.name; return; } }
   el.hidden = true;
 }
@@ -317,6 +324,9 @@ function setupMenu(R, sky) {
   mark();
   $('tod').oninput = (e) => { game.hour = +e.target.value; };
   $('resume').onclick = toggleMenu;
+  $('groqKey').value = getKey() ? '••••••••••••' : '';
+  $('groqSave').onclick = () => { const v = $('groqKey').value; if (v && !v.startsWith('•')) { setKey(v); toast('Clé Groq enregistrée dans ce navigateur'); } if (!v) setKey(''); };
+  $('groqKey').addEventListener('keydown', e => e.stopPropagation());
 }
 function toggleMenu() {
   const m = $('menu'); m.hidden = !m.hidden; game.paused = !m.hidden; game.input.enabled = m.hidden;

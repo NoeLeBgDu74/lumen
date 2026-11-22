@@ -65,3 +65,17 @@ html, body { margin:0; height:100%; overflow:hidden; background:#0b0c0f; color:v
 .swatches i { width:30px; height:30px; border-radius:50%; cursor:pointer; border:2px solid transparent; box-shadow:inset 0 0 0 1px rgba(255,255,255,.2); }
 .swatches i.on { border-color:var(--fg); }
 #create button.primary { width:100%; margin-top:22px; padding:12px; border-radius:10px; border:0; background:var(--acc); color:#16110a; font:700 14px Inter; cursor:pointer; }
+
+#talk { position:fixed; right:20px; bottom:20px; z-index:35; width:min(420px, calc(100vw - 32px)); }
+.tpanel { background:rgba(16,18,24,.88); border:1px solid var(--line); border-radius:16px; backdrop-filter:blur(12px); padding:14px; display:flex; flex-direction:column; gap:10px; }
+.thead { display:flex; justify-content:space-between; align-items:flex-start; }
+#talkWho b { display:block; font-size:16px; } #talkWho span { font-size:12px; color:var(--dim); }
+#talkClose { background:none; border:0; color:var(--dim); font-size:18px; cursor:pointer; }
+#talkLog { max-height:260px; overflow:auto; display:flex; flex-direction:column; gap:6px; }
+.ln { padding:8px 11px; border-radius:12px; font-size:13.5px; line-height:1.4; max-width:85%; }
+.ln.npc { background:rgba(255,255,255,.08); align-self:flex-start; } .ln.me { background:var(--acc); color:#16110a; align-self:flex-end; }
+.ln.old { opacity:.5; }
+#talkQuick { display:flex; gap:6px; flex-wrap:wrap; } #talkQuick button { font:500 11.5px Inter; padding:6px 9px; border-radius:20px; border:1px solid var(--line); background:rgba(255,255,255,.05); color:var(--fg); cursor:pointer; }
+.tin { display:flex; gap:6px; } .tin input { flex:1; padding:10px; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.06); color:var(--fg); font:500 13.5px Inter; }
+.tin button { padding:0 14px; border-radius:10px; border:0; background:var(--fg); color:#111; font:700 13px Inter; cursor:pointer; }
+#talkMode { font-size:10.5px; color:var(--dim); }

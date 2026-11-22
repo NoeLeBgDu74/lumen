@@ -1,3 +1,4 @@
 tools/node_modules/
 assets/props/_src/
 *.log
+config.local.js

@@ -30,7 +30,7 @@
   <div id="prompt" hidden></div>
   <div id="toast"></div>
   <div id="speedo" hidden><b id="kmh">0</b><span>km/h</span><em id="gear">D</em></div>
-  <div id="help">ZQSD/WASD bouger · Maj courir · E interagir · F monter/descendre · T accélérer le temps · Échap menu</div>
+  <div id="help">ZQSD bouger · Maj courir · Espace sauter · E parler · F voiture · C vue intérieure · Échap menu</div>
 </div>
 
 <div id="fade"></div>
@@ -54,6 +54,16 @@
   </div>
 </div>
 
+<div id="talk" hidden>
+  <div class="tpanel">
+    <div class="thead"><div id="talkWho"></div><button id="talkClose">✕</button></div>
+    <div id="talkLog"></div>
+    <div id="talkQuick"><button>Comment ça va ?</button><button>Tu fais quoi dans la vie ?</button><button>Ta journée ?</button><button data-bye="1">Au revoir</button></div>
+    <div class="tin"><input id="talkIn" placeholder="Écrivez votre message…" maxlength="300"><button id="talkSend">Envoyer</button></div>
+    <div id="talkMode"></div>
+  </div>
+</div>
+
 <div id="menu" hidden>
   <div class="panel">
     <h1>LIVING WORLD</h1>
@@ -64,11 +74,16 @@
     <div class="stat" id="stats"></div>
     <h3>Heure</h3>
     <div class="row"><input type="range" id="tod" min="0" max="24" step="0.1"></div>
+    <h3>IA des habitants (Groq)</h3>
+    <div class="row"><input id="groqKey" type="password" placeholder="Clé API Groq (gsk_…) — reste dans ce navigateur" style="flex:1;padding:9px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#fff"><button id="groqSave">OK</button></div>
+    <h3>Commandes</h3>
+    <p class="credits" style="margin-top:0;color:rgba(255,255,255,.65)">ZQSD/WASD bouger · Souris caméra (clic pour verrouiller) · Maj courir · Espace sauter / frein à main · E parler, interagir · F monter/descendre de voiture · C vue intérieure · Échap menu</p>
     <button id="resume" class="primary">Reprendre</button>
     <p class="credits">Voitures : série « Low poly model » par Daniel Zhabotinsky (Sketchfab, CC-BY 4.0). Personnages : Mixamo (Adobe) via exemples three.js, avatar Ready Player Me. Ciels, textures et mobilier : Poly Haven (CC0). Moteur : three.js.</p>
   </div>
 </div>
 
+<script src="config.local.js" onerror="void 0"></script>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>
