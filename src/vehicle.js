@@ -53,7 +53,7 @@ export class Vehicle {
     if (this.reverse) Fdrive = -Math.min(Fdrive, this.mass * 3);
     // ABS : freinage modulé près du blocage (adhérence selon surface/météo)
     const absK = brk > 0.8 && Math.abs(v) > 3 ? 0.88 + Math.sin(performance.now() / 40) * 0.08 : 1;
-    const Fbrake = brk * this.mass * 9.81 * 1.0 * (this.gripMul || 1) * absK * Math.sign(v || 0.0001);
+    const Fbrake = brk * this.mass * 9.81 * 1.0 * (this.gripMul || 1) * (this.brakeMul || 1) * absK * Math.sign(v || 0.0001);
     // frein moteur quand on lève le pied
     const Feng = thr < 0.05 && !this.reverse ? Math.sign(v) * Math.min(Math.abs(v) * 60, this.mass * 0.9) * (6 - this.gear) / 5 : 0;
     const Fdrag = 0.42 * v * Math.abs(v) + 12 * v + (Math.abs(v) > 0.05 ? Math.sign(v) * this.mass * 0.11 : 0);

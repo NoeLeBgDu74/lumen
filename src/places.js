@@ -153,7 +153,16 @@ export class Places {
     const btn = [];
     const owned = this.g.vehAI && this.g.vehAI.ownerIsPlayer;
     if (v) { const cost = Math.round(v.damage * 9); btn.push({ label: `Réparer la voiture · ${fmt(cost)}`, disabled: v.damage < 1, run: () => { if (L.money(-cost, 'réparation')) v.damage = 0; } }); }
-    L.panel(p.name, `<p>Garage et atelier.${v ? ' Dégâts : ' + Math.round(v.damage) + ' %' : ' Venez en voiture pour une réparation.'}</p>`, [...btn, ...this.jobButtons(p)]);
+    const ai = this.g.vehAI, own = ai && ai.ownedIdx !== undefined ? L.s.cars[ai.ownedIdx] : null;
+    if (own) {
+      own.mods = own.mods || {};
+      btn.push({ label: `Moteur stage ${(own.mods.engine || 0) + 1} (+15 % puissance) · 1 500 €`, disabled: (own.mods.engine || 0) >= 3, keep: true, run: () => { if (L.money(-1500, 'préparation moteur')) { own.mods.engine = (own.mods.engine || 0) + 1; v.powerW *= 1.15 / (1 + 0.15 * (own.mods.engine - 1)) * (1 + 0.15 * (own.mods.engine - 1)); L.save(); this._garage(p); } } });
+      btn.push({ label: 'Freins sport · 800 €', disabled: !!own.mods.brakes, keep: true, run: () => { if (L.money(-800, 'freins sport')) { own.mods.brakes = 1; v.brakeMul = 1.25; L.save(); this._garage(p); } } });
+      btn.push({ label: 'Suspension sport · 700 €', disabled: !!own.mods.susp, keep: true, run: () => { if (L.money(-700, 'suspension sport')) { own.mods.susp = 1; v.gripMod = 1.08; L.save(); this._garage(p); } } });
+      btn.push({ label: 'Vitres teintées · 300 €', disabled: !!own.mods.tint, keep: true, run: () => { if (L.money(-300, 'vitres teintées')) { own.mods.tint = 1; v.car.obj.traverse(o => { if (o.isMesh && o.material.transparent && o.material.opacity < 0.5) { o.material = o.material.clone(); o.material.opacity = 0.82; } }); L.save(); this._garage(p); } } });
+      for (const col of ['#101114', '#f2f2f0', '#8a1c1c', '#1d3c78', '#2f5a3d', '#e0c341', '#b3541e', '#6b3f8c']) btn.push({ label: 'Peinture ' + col + ' · 450 €', keep: true, run: () => { if (L.money(-450, 'peinture')) { own.paint = col; if (v.car.paint) v.car.paint.color.set(col); L.save(); this._garage(p); } } });
+    }
+    L.panel(p.name, `<p>Garage et atelier.${v ? ' Dégâts : ' + Math.round(v.damage) + ' %' : ' Venez en voiture pour une réparation.'}${own ? '<br><b>Personnalisation de votre véhicule</b> (moteur stage ' + (own.mods.engine || 0) + '/3)' : v ? '<br><small>La personnalisation est réservée à vos véhicules.</small>' : ''}</p>`, [...btn, ...this.jobButtons(p)]);
     void owned;
   }
   _warehouse(p) { this.g.life.panel(p.name, '<p>Entrepôt de livraisons express.</p>', [...this.jobButtons(p), { label: 'Cambrioler l’entrepôt ⚠', run: () => { this.burgle(p); return false; } }]); }
@@ -221,7 +230,8 @@ export class Places {
   homeMenu() {
     const L = this.g.life, s = L.s, g = this.g;
     L.panel(s.home.name + ' · chez vous', `<p>Repas en stock : <b>${s.food}</b>.</p>`, [
-      { label: 'Dormir jusqu’à 7h', primary: true, run: () => { const h = g.hour; const dur = h < 7 ? 7 - h : 31 - h; L.skip(dur, () => { s.needs.energie = 100; s.needs.faim = Math.max(0, s.needs.faim - dur * 2); s.needs.hygiene -= 10; }); } },
+      { label: '🚪 Entrer chez moi', primary: true, run: () => { g.homeInt.enter(); } },
+      { label: 'Dormir jusqu’à 7h', run: () => { const h = g.hour; const dur = h < 7 ? 7 - h : 31 - h; L.skip(dur, () => { s.needs.energie = 100; s.needs.faim = Math.max(0, s.needs.faim - dur * 2); s.needs.hygiene -= 10; }); } },
       { label: 'Faire une sieste (2 h)', run: () => L.skip(2, () => { s.needs.energie = Math.min(100, s.needs.energie + 25); }) },
       { label: 'Cuisiner et manger', disabled: s.food < 1, run: () => { s.food--; L.feed(65); L.s.needs.moral = Math.min(100, L.s.needs.moral + 4); } },
       { label: 'Prendre une douche', run: () => L.skip(0.3, () => { s.needs.hygiene = 100; }) },

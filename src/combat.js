@@ -139,7 +139,8 @@ export class Combat {
     const m = this.models[this.cur];
     const muzzle = m ? m.localToWorld(new THREE.Vector3(W.muzzle[0] - W.grip[0], W.muzzle[1] - W.grip[1], 0)) : P.pos.clone().add(new THREE.Vector3(0, 1.4, 0));
     const cam = g.R.camera; const ray = new THREE.Raycaster();
-    ray.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * W.spread * (this.aiming ? 0.4 : 1) * 2, (Math.random() - 0.5) * W.spread * 2), cam);
+    const sk = 1.5 - Math.min(1, (s.skills ? s.skills.tir : 0) / 100); if (s.skills) s.skills.tir = Math.min(100, s.skills.tir + 0.3);
+    ray.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * W.spread * sk * (this.aiming ? 0.4 : 1) * 2, (Math.random() - 0.5) * W.spread * sk * 2), cam);
     let best = null, bd = W.range;
     for (const t of this.targets()) {
       const c = t.pos.clone().add(new THREE.Vector3(0, t.h || 1.0, 0));

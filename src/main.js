@@ -22,6 +22,7 @@ import { Combat } from './combat.js';
 import { Admin } from './admin.js';
 import { Living } from './living.js';
 import { Weather } from './weather.js';
+import { HomeInterior } from './home.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
 import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
 import { Places, PJOBS } from './places.js';
@@ -97,7 +98,9 @@ async function start() {
   game.minimap = new Minimap(game);
   game.peds = new Peds(game); game.peds.max = Math.max(6, R.q.npc - 4);
   game.markers = new Markers(scene);
-  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M);
+  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M); game.homeInt = new HomeInterior(game);
+  game.openWardrobe = () => { createCharacter(scene, player, camera).then(() => { setPlayerChar(scene, player, game.profile); }); };
+  buildRadars(scene);
   { const ph = W.places.find(p => p.type === 'pharmacy'); window.__lwHospital = ph ? ph.door.p : null; }
   const off = W.places.find(p => p.type === 'office'); game.policeStation = off ? off.door.p : null;
   game.ownedAI = [];
@@ -136,7 +139,7 @@ async function start() {
       if (input.pressed('KeyF')) toggleCar();
       if (input.pressed('KeyE')) handleE();
       if (input.pressed('KeyP')) togglePhone();
-      gameplayUpdate(dt); fxUpdate(dt); game.combat.update(dt); game.living.update(dt); if (!game.admin.fly) game.admin.update(dt); game.peds.update(dt); game.markers.update(camera, game.time);
+      gameplayUpdate(dt); fxUpdate(dt); game.combat.update(dt); game.living.update(dt); if (!game.admin.fly) game.admin.update(dt); if (!game.homeInt.inside) game.peds.update(dt); game.markers.update(camera, game.time); skillsUpdate(dt); radarsUpdate(dt);
       if (input.pressed('KeyG')) robNearest();
       if (input.pressed('KeyH') && !game.veh) { player.char.play('wave', 0.2); game.emoteT = game.time + 2.5; game.net.emote('wave'); }
       if (game.seq) seqUpdate(dt);
@@ -365,6 +368,8 @@ function startDriving(ai) {
   const v = game.veh = new Vehicle(ai.car, game.world); game.vehAI = ai;
   v.dyn = (p) => game.traffic.circles(p).concat(game.net.circles(p));
   v.place(ai.pos.x, ai.pos.z, ai.heading); v.spin = ai.spin;
+  const mods = ai.ownedIdx !== undefined && game.life.s.cars[ai.ownedIdx] ? (game.life.s.cars[ai.ownedIdx].mods || {}) : {};
+  v.powerW *= 1 + 0.15 * (mods.engine || 0); v.brakeMul = mods.brakes ? 1.25 : 1; v.gripMod = mods.susp ? 1.08 : 1; v.mods = mods;
   pl.mode = 'car'; game.seq = null;
   pl.camYaw = v.heading + Math.PI; pl.camPitch = 0.16; pl.camInit = false;
   $('speedo').hidden = false;
@@ -385,7 +390,7 @@ function driveUpdate(dt) {
   const { f, s } = inp.move();
   if (inp.pressed('KeyC')) game.interior = !game.interior;
   v.headlights = game.sky.night > 0.45 ? 1 : 0;
-  { const offRoad = Math.abs(v.pos.x) > -W.OX + 10 || Math.abs(v.pos.z) > -W.OZ + 10 ? !nearRoad(v.pos) : false; v.gripMul = (game.weather ? game.weather.grip : 1) * (offRoad ? 0.65 : 1); }
+  { const offRoad = Math.abs(v.pos.x) > -W.OX + 10 || Math.abs(v.pos.z) > -W.OZ + 10 ? !nearRoad(v.pos) : false; v.gripMul = (game.weather ? game.weather.grip : 1) * (offRoad ? 0.65 : 1) * (v.gripMod || 1) * (1 + (game.life.s.skills ? game.life.s.skills.conduite : 0) / 1000); }
   v.update(dt, { throttle: Math.max(0, f), brake: Math.max(0, -f), steer: -s, handbrake: inp.down('Space') });
   const ai = game.vehAI; ai.pos.copy(v.pos); ai.heading = v.heading; ai.v = Math.abs(v.vz);
   // conducteur visible, assis, mains au volant
@@ -423,6 +428,7 @@ function driveUpdate(dt) {
 function interactPrompt() {
   const el = $('prompt');
   if ((game.talk && game.talk.open) || game.life.panelOpen) { el.hidden = true; return; }
+  if (game.homeInt.inside) { const sp = game.homeInt.nearest(game.player.pos); el.hidden = !sp; if (sp) el.innerHTML = '<kbd>E</kbd>' + sp.label; return; }
   if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant') + ' &nbsp; <kbd>G</kbd>Voler'; return; } }
   if (!game.veh && !game.seq) { const pd = game.peds.nearest(game.player.pos); if (pd) { el.hidden = false; el.innerHTML = '<kbd>G</kbd>Voler ce passant'; return; } }
   if (!game.veh && !game.seq) { const pl = game.places.nearest(game.player.pos); if (pl) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>' + game.places.label(pl); return; } }
@@ -430,6 +436,57 @@ function interactPrompt() {
   if (!game.veh) { const ai = nearestCar(); if (ai) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans ' + ai.tpl.spec.name; return; } }
   el.hidden = true;
 }
+// ---------- endurance & compétences ----------
+function skillsUpdate(dt) {
+  const s = game.life.s; s.skills = s.skills || { endurance: 10, conduite: 10, tir: 5 }; s.stamina = s.stamina ?? 100;
+  const P = game.player, run = !game.veh && P.speed > 4;
+  if (run) { s.stamina = Math.max(0, s.stamina - dt * (14 - s.skills.endurance * 0.08)); s.skills.endurance = Math.min(100, s.skills.endurance + dt * 0.02); }
+  else s.stamina = Math.min(100, s.stamina + dt * 9);
+  P.tired = s.stamina < 3; // essoufflé : ne peut plus sprinter
+  P.runBoost = 1 + s.skills.endurance / 400;
+  if (game.veh && game.veh.kmh > 20) s.skills.conduite = Math.min(100, s.skills.conduite + dt * 0.004);
+  const el = $('stamina'); if (el) { el.style.width = s.stamina + '%'; el.parentNode.style.opacity = s.stamina < 99 && !game.veh ? 1 : 0; }
+}
+// ---------- radars automatiques ----------
+const radars = [];
+function buildRadars(scene) {
+  const picks = W.edges.filter(e => e.kind === 'city').filter((e, i) => i % 9 === 3).slice(0, 10);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x2b2f33, metalness: 0.6, roughness: 0.4 }), box = new THREE.MeshStandardMaterial({ color: 0xd9dcd2, roughness: 0.5 });
+  for (const e of picks) {
+    const A = W.nodes[e.a]; const t = e.len / 2; const rgt = new THREE.Vector3(-e.dir.z, 0, e.dir.x);
+    const p = new THREE.Vector3(A.x + e.dir.x * t, 0, A.z + e.dir.z * t).addScaledVector(rgt, W.RW + 0.8);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3, 8), mat); pole.position.copy(p).setY(1.65); scene.add(pole);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 0.5), box); b.position.copy(p).setY(3.3); b.rotation.y = Math.atan2(-e.dir.x, -e.dir.z); scene.add(b);
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.12, 16), new THREE.MeshBasicMaterial({ color: 0x111111 })); lens.position.copy(p).setY(3.3).addScaledVector(e.dir, -0.26); lens.rotation.y = Math.atan2(-e.dir.x, -e.dir.z); scene.add(lens);
+    radars.push({ p, dir: e.dir, lens, last: -99 });
+  }
+}
+function radarsUpdate(dt) {
+  const v = game.veh; for (const r of radars) r.lens.material.color.setHex(game.time - r.last < 0.15 ? 0xffffff : 0x111111);
+  if (!v) return;
+  for (const r of radars) {
+    if (v.pos.distanceTo(r.p) > 14 || game.time - r.last < 20) continue;
+    const fw = new THREE.Vector3(Math.sin(v.heading), 0, Math.cos(v.heading)); if (fw.dot(r.dir) < 0.6) continue;
+    if (v.kmh > 55) {
+      r.last = game.time; const over = Math.round(v.kmh - 50);
+      const fine = over > 40 ? 750 : over > 20 ? 135 : 68, pts = over > 40 ? 4 : over > 20 ? 2 : 1;
+      const L = game.life, lic = L.s.license; L.s.money -= fine; lic.points = (lic.points ?? 12) - (lic.permis ? pts : 0);
+      L.notify(`📸 Flashé à ${Math.round(v.kmh)} km/h (limite 50) : amende ${fine} €${lic.permis ? ', −' + pts + ' point(s) (reste ' + lic.points + ')' : ''}`, 'warn');
+      if (lic.permis && lic.points <= 0) { lic.permis = false; game.license = false; lic.points = 12; lic.code = false; lic.lessons = 0; L.notify('🚫 Permis annulé : solde de points nul. Repassez-le à l’auto-école.', 'warn'); }
+      L.save();
+    }
+  }
+}
+// ---------- taxi (trajet accéléré) ----------
+game.callTaxi = async (dest, label) => {
+  const L = game.life, from = game.player.pos.clone(); const d = from.distanceTo(dest);
+  const price = Math.round(4 + d * 0.0125 * 1.0 * 1.4);
+  if (!L.money(-price, 'taxi vers ' + label)) return;
+  L.notify('🚕 Un taxi arrive…'); await new Promise(r => setTimeout(r, 2500));
+  await L.skip(d / 11 / 3600 * 1.0 + 0.05, () => { game.player.place(dest.x + 2, dest.z + 2, 0); });
+  L.notify('🚕 Vous êtes arrivé·e : ' + label, 'ok');
+};
+
 // ---------- vol à l'arraché ----------
 function robNearest() {
   if (game.veh || game.seq) return;
@@ -451,6 +508,7 @@ function nearPump() {
 }
 function handleE() {
   if (game.seq || game.life.panelOpen) return;
+  if (game.homeInt.inside) { const sp = game.homeInt.nearest(game.player.pos); if (sp) game.homeInt.act(sp); return; }
   if (game.veh) { if (nearPump()) game.places.refuel(game.veh); return; }
   const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) return game.talk.start(n);
   const pl = game.places.nearest(game.player.pos); if (pl) return game.places.open(pl);
@@ -535,7 +593,7 @@ function togglePhone() {
   if (!ph.hidden) { phoneHome(); document.exitPointerLock?.(); }
 }
 const JLAB = { cashier: 'caissier·ère', shelver: 'employé·e de rayon', office: 'employé·e de bureau', mechanic: 'mécanicien·ne', delivery: 'livreur·se', worker: 'ouvrier·ère', waiter: 'serveur·se', baker: 'boulanger·ère', seller: 'vendeur·se', car_seller: 'vendeur·se auto', instructor: 'moniteur·rice', retired: 'retraité·e', student: 'étudiant·e' };
-const APPS = [['🗺️', 'GPS', '#2a62c9', () => phoneGPS()], ['👥', 'Contacts', '#2f6b47', () => phoneContacts()], ['🏦', 'Banque', '#20406b', () => phoneBank()], ['🚗', 'Véhicules', '#8a1c1c', () => phoneCars()], ['💼', 'Emploi', '#6b5b45', () => phoneJob()], ['🪪', 'Permis', '#e08a1e', () => phoneLicense()], ['🌐', 'Multijoueur', '#6b3f8c', () => phoneNet()], ['🏠', 'Logement', '#4b5a73', () => phoneHousing()], ['⚙️', 'Réglages', '#444', () => { togglePhone(); toggleMenu(); }]];
+const APPS = [['🗺️', 'GPS', '#2a62c9', () => phoneGPS()], ['👥', 'Contacts', '#2f6b47', () => phoneContacts()], ['🏦', 'Banque', '#20406b', () => phoneBank()], ['🚗', 'Véhicules', '#8a1c1c', () => phoneCars()], ['💼', 'Emploi', '#6b5b45', () => phoneJob()], ['🪪', 'Permis', '#e08a1e', () => phoneLicense()], ['🌐', 'Multijoueur', '#6b3f8c', () => phoneNet()], ['🏠', 'Logement', '#4b5a73', () => phoneHousing()], ['🚕', 'Taxi', '#d6a21e', () => phoneTaxi()], ['⚙️', 'Réglages', '#444', () => { togglePhone(); toggleMenu(); }]];
 function phoneHome() {
   $('phClock').textContent = $('clock').textContent;
   $('phBody').innerHTML = `<div class="phh">Bonjour ${game.profile.first}</div><div class="apps">${APPS.map((a, i) => `<button class="app" data-i="${i}"><i style="background:${a[2]}">${a[0]}</i>${a[1]}</button>`).join('')}</div>`;
@@ -596,6 +654,12 @@ game.onIncomingCall = (name, call) => {
   $('acc').onclick = () => { game.net.answer(); phoneHome(); };
   $('dec').onclick = () => { game.net.decline(); ph.hidden = true; };
 };
+function phoneTaxi() {
+  const types = [['supermarket', 'Supermarché'], ['dealership', 'Concession'], ['driving_school', 'Auto-école'], ['gas_station', 'Station-service'], ['office', 'Bureaux'], ['garage', 'Garage'], ['park', 'Parc'], ['gunshop', 'Armurerie'], ['restaurant', 'Restaurant']];
+  const items = types.map(([t, l]) => { const p = W.places.find(x => x.type === t && x.door); return p && { t: '🚕 ' + l, s: p.name + ' · ~' + Math.round(4 + p.door.p.distanceTo(game.player.pos) * 0.0175) + ' €', run: () => { togglePhone(); game.callTaxi(p.door.p, p.name); } }; }).filter(Boolean);
+  if (game.life.s.home) items.unshift({ t: '🚕 Domicile', s: game.life.s.home.name, run: () => { togglePhone(); game.callTaxi(W.places[game.life.s.home.id].door.p, 'Domicile'); } });
+  phList('Taxi Lumen', items);
+}
 function phoneBank() { const s = game.life.s; phList(`${fmt(s.money)} · compte ${fmt(s.bank)}`, s.log.slice(-14).reverse().map(l => ({ t: (l.v >= 0 ? '+' : '') + fmt(l.v), s: `Jour ${l.d} · ${l.why || ''}` }))); }
 function phoneCars() {
   const s = game.life.s;

@@ -137,7 +137,7 @@ export class Minimap {
     x.restore();
     // joueur
     x.save(); x.translate(s / 2, s / 2); x.fillStyle = '#fff'; x.beginPath(); x.moveTo(0, -9 * devicePixelRatio); x.lineTo(6 * devicePixelRatio, 7 * devicePixelRatio); x.lineTo(0, 3 * devicePixelRatio); x.lineTo(-6 * devicePixelRatio, 7 * devicePixelRatio); x.closePath(); x.fill(); x.restore();
-    $('district').textContent = districtAt(p.x, p.z);
+    $('district').textContent = g.homeInt && g.homeInt.inside ? 'Chez vous' : districtAt(p.x, p.z);
   }
 }
 export const ICONS = {
