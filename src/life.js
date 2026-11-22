@@ -58,6 +58,15 @@ export class Life {
       this.s.rentNext = g.day + 7;
       if (!this.money(-this.s.home.rent * 7 / 30 * 4.3 / 4.3, 'loyer de la semaine')) { this.s.rentDebt = (this.s.rentDebt || 0) + 1; if (this.s.rentDebt >= 2) { this.notify('Expulsé·e pour loyers impayés', 'warn'); this.s.home = null; } }
     }
+    // PV de stationnement : vos voitures laissées sur le trottoir ou au milieu de la chaussée
+    if (g.time - (this._pvT || 0) > 30) {
+      this._pvT = g.time;
+      for (const ai of g.ownedAI || []) {
+        if (!ai || ai === g.vehAI || ai.spot || ai.state !== 'parked') continue;
+        const far = ai.pos.distanceTo(g.player.pos) > 40, onWalk = ai.car.obj.position.y > 0.08;
+        if (far && (onWalk || !ai.spot) && Math.random() < 0.25 && g.time - (ai._pv || -999) > 300) { ai._pv = g.time; this.money(-35, 'PV : stationnement gênant (' + ai.tpl.spec.name + ')'); }
+      }
+    }
     // factures de la semaine : forfait téléphone + assurance de chaque voiture
     if (g.day >= (this.s.billsNext || 0) && g.hour > 9) {
       const first = !this.s.billsNext; this.s.billsNext = g.day + 7;

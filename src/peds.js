@@ -95,12 +95,22 @@ export class Peds {
         p.ch.play(p.ch.has('talk') && Math.sin(p.t * 0.7 + p.speed * 9) > 0 ? 'talk' : 'idle', 0.4);
         if (p.t > p.chatUntil) { p.state = 'walk'; this.pick(p); }
         if (g.veh && g.veh.kmh > 10 && p.pos.distanceTo(g.veh.pos) < 6) { p.state = 'walk'; this.pick(p); }
+      } else if (p.state === 'mugger') {
+        const v = p.victim; const to = v.pos.clone().sub(p.pos); to.y = 0; const d = to.length();
+        if (d > 1.1 && p.t < 20) { p.pos.addScaledVector(to.normalize(), Math.min(d, 4.6 * dt)); p.heading = Math.atan2(to.x, to.z); p.ch.play('run', 0.25); }
+        else if (!p.robbed) {
+          p.robbed = true; p.t = 0; p.ch.play('idle', 0.2); p.ch.overlay('reach');
+          v.state = 'handsup'; v.t = 0; v.ch.play('idle', 0.1); v.ch.overlay('handsHead'); v.heading = Math.atan2(p.pos.x - v.pos.x, p.pos.z - v.pos.z);
+          g.audio && g.audio.scream(v.female, 0.16);
+          g.living && g.living.onMugging(p, v);
+        } else if (p.t > 1.8) { p.ch.overlay(null); p.state = 'flee'; p.t = 0; p.fall = p.pos.clone().sub(v.pos).setY(0).normalize(); p.ch.play('run', 0.2); p.thief = true; }
       } else if (p.state === 'handsup') {
         if (p.t > 1.6) { p.ch.overlay(null); p.state = 'flee'; p.t = 0; p.ch.play('run', 0.2); g.audio && g.audio.scream(p.female, 0.15); }
       } else if (p.state === 'flee') {
+        if (!p.fall) { const a = Math.random() * 6.283; p.fall = new THREE.Vector3(Math.cos(a), 0, Math.sin(a)); }
         const nx = p.pos.x + p.fall.x * 5 * dt, nz = p.pos.z + p.fall.z * 5 * dt; const r = g.world.resolve(nx, nz, 0.3); p.pos.set(r.x, 0, r.z); if (r.hit) p.fall.applyAxisAngle(new THREE.Vector3(0, 1, 0), 1);
         p.heading = Math.atan2(p.fall.x, p.fall.z); p.ch.play('run', 0.25);
-        if (p.t > 8) { this.release(p); this.list.splice(this.list.indexOf(p), 1); continue; }
+        if (p.t > (p.thief ? 25 : 8) || p.caught) { this.release(p); this.list.splice(this.list.indexOf(p), 1); continue; }
       } else if (p.state === 'down') {
         if (!p.vel) p.vel = new THREE.Vector3();
         if (!p.landed) { // vol balistique + culbute

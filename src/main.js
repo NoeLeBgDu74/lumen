@@ -492,6 +492,7 @@ function interactPrompt() {
   if (game.homeInt.inside) { const sp = game.homeInt.nearest(game.player.pos); el.hidden = !sp; if (sp) el.innerHTML = '<kbd>E</kbd>' + (sp.labelFn ? sp.labelFn() : sp.label); return; }
   if (game.story && game.story.near(game.player.pos)) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Commencer la mission'; return; }
   if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant') + ' &nbsp; <kbd>G</kbd>Voler'; return; } }
+  if (!game.veh && !game.seq) { const th = game.peds.list.find(p => p.thief && !p.caught && p.pos.distanceTo(game.player.pos) < 2.6); if (th) { el.hidden = false; el.innerHTML = '<kbd>G</kbd>Plaquer le voleur'; return; } }
   if (!game.veh && !game.seq) { const pd = game.peds.nearest(game.player.pos); if (pd) { el.hidden = false; el.innerHTML = '<kbd>G</kbd>Voler ce passant'; return; } }
   if (game.taxi && game.taxi.phase === 'waiting' && game.player.pos.distanceTo(game.taxi.ai.pos) < 6) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans le taxi'; return; }
   if (!game.veh && !game.seq && !game.passenger) { const rc = game.net.nearRemoteCar(game.player.pos); if (rc && !nearestCar(2.5)) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter avec ' + rc.R.name; return; } }
@@ -605,6 +606,8 @@ function endTaxi() { const T = game.taxi; if (!T) return; const ai = T.ai; game.
 // ---------- vol à l'arraché ----------
 function robNearest() {
   if (game.veh || game.seq) return;
+  const thief = game.peds.list.find(p => p.thief && !p.caught && p.pos.distanceTo(game.player.pos) < 2.6);
+  if (thief) { thief.caught = true; game.peds.knock(thief, new THREE.Vector3(Math.sin(game.player.yaw), 0, Math.cos(game.player.yaw)), 15); game.life.money(80, 'récompense : voleur arrêté'); game.life.notify('🦸 Vous avez plaqué le voleur ! La police vous remercie.', 'ok'); game.coop && game.coop.post('Lumen Info', `👏 Un passant héroïque a plaqué un voleur en pleine rue ! #héros`, { likes: 1500, viral: true, icon: '🦸' }); return; }
   const pd = game.peds.nearest(game.player.pos, 2.4);
   if (pd) { game.player.char.overlay('reach'); setTimeout(() => game.player.char.overlay(null), 700); return game.peds.rob(pd); }
   const n = game.pop.nearestTo(game.player.pos, 2.4);

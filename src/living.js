@@ -163,6 +163,32 @@ export class Living {
     }
   }
 
+  // ---------- vol à l'arraché entre habitants ----------
+  startMugging() {
+    const g = this.g, P = g.peds, me = g.player.pos;
+    const v = P.list.find(p => p.state === 'walk' && p.pos.distanceTo(me) > 15 && p.pos.distanceTo(me) < 70);
+    if (!v) return;
+    const male = Math.random() < 0.8, ch = P.acquire(!male);
+    const a = Math.random() * 6.28, pos = v.pos.clone().add(new THREE.Vector3(Math.cos(a) * 12, 0, Math.sin(a) * 12));
+    const m = { ch, female: !male, pos, i: v.i, j: v.j, qx: v.qx, qz: v.qz, target: null, heading: 0, speed: 1.3, state: 'mugger', t: 0, money: 0, victim: v };
+    P.list.push(m);
+  }
+  onMugging(m, v) {
+    const g = this.g, where = districtAt(v.pos.x, v.pos.z);
+    this.rumor(`un passant s'est fait voler son sac à ${where}`, where);
+    if (v.pos.distanceTo(g.player.pos) < 80) g.life.notify('🚨 « Au voleur !! » — un passant se fait détrousser près de vous', 'warn');
+    g.coop && Math.random() < 0.5 && g.coop.post('Témoin anonyme', `🎥 Un voleur vient d'arracher le sac d'une personne à ${where} !! Faites attention 😡 #insécurité`, { likes: 200 + Math.floor(Math.random() * 900), viral: false, icon: '🎥' });
+    // la police intervient : patrouille vers les lieux ; voleur interpellé s'il est rattrapé (ou par le joueur)
+    setTimeout(() => {
+      if (!g.peds.list.includes(m)) return;
+      const u = g.police.spawnUnit(m.pos.clone()); u.target = { pos: m.pos }; u.mode = 'chase'; m.unit = u;
+      const chk = setInterval(() => {
+        if (!g.peds.list.includes(m) || !g.police.units.includes(u)) { clearInterval(chk); if (g.police.units.includes(u)) { u.target = null; setTimeout(() => g.police.units.includes(u) && g.police.removeUnit(u), 8000); } return; }
+        if (u.ai.pos.distanceTo(m.pos) < 6) { m.caught = true; clearInterval(chk); u.target = null; this.rumor(`la police a arrêté un voleur à ${districtAt(m.pos.x, m.pos.z)}`); if (m.pos.distanceTo(g.player.pos) < 120) g.life.notify('🚓 Le voleur a été interpellé', 'ok'); setTimeout(() => g.police.units.includes(u) && g.police.removeUnit(u), 8000); }
+      }, 500);
+    }, 7000);
+  }
+
   // ---------- ambulance : blessé (piéton renversé, agressé) → secours ----------
   callAmbulance(victim) {
     const g = this.g; if (this.emergencies.find(e => e.victim === victim) || this.emergencies.length > 2) return;
@@ -303,6 +329,7 @@ export class Living {
     const g = this.g;
     if (g.time > this.nextCrime) { this.nextCrime = g.time + 150 + Math.random() * 180; if (!g.net || !g.net.connected || g.net.host) this.startCarTheft(); }
     if (g.time > this.nextIncident) { this.nextIncident = g.time + 120 + Math.random() * 150; if (!g.net || !g.net.connected || g.net.host) this.incident(); }
+    if (g.time > (this.nextMug || 0)) { this.nextMug = g.time + 120 + Math.random() * 160; if (this.nextMug > 0 && g.time > 60) this.startMugging(); }
     if (g.time > this.nextFire) { this.nextFire = g.time + 300 + Math.random() * 300; if (!g.net || !g.net.connected || g.net.host) this.startFire(); }
     this.updateEmergencies(dt);
     this.updateThieves(dt); this.updateIncidents(dt); this.updateSkids(); this.updateBirds(dt); this.updateFires(dt);
