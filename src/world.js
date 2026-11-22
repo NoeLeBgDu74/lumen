@@ -21,7 +21,7 @@ const MAP = [
   'SSRRLLCC',
   'SSSRRLCC',
 ];
-export const DISTRICT_NAMES = { S: 'Les Tilleuls (pavillons)', R: 'Belleville (résidentiel)', D: 'Centre-ville', C: 'Zone commerciale du Lac', I: 'Zone industrielle des Forges', L: 'Parc & loisirs' };
+export const DISTRICT_NAMES = { V: 'Les Hauteurs (villas)', S: 'Les Tilleuls (pavillons)', R: 'Belleville (résidentiel)', D: 'Centre-ville', C: 'Zone commerciale du Lac', I: 'Zone industrielle des Forges', L: 'Parc & loisirs' };
 export const district = (i, j) => (MAP[j] && MAP[j][i]) || 'X';
 
 // Lots spéciaux : bloc → bâtiment(s) clé(s).
@@ -36,7 +36,8 @@ export const SPECIAL = {
   '7,1': 'garage_block',          // garage mécanique + entrepôts
   '1,2': 'park',                  // parc central
   '4,4': 'park', '5,4': 'sports', '5,5': 'park',
-  '2,3': 'home_block',            // immeuble de départ du joueur
+  '2,3': 'home_block',
+  '0,5': 'villas', '1,5': 'villas', '2,5': 'villas', // Les Hauteurs : quartier de villas            // immeuble de départ du joueur
 };
 
 // ---------- graphe routier ----------

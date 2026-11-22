@@ -15,8 +15,9 @@ export class Traffic {
   async load() { this.templates = await Promise.all(CATALOG.map(c => loadCarTemplate(c.id))); }
 
   newCar(specId, paint, forceId) {
-    const tpl = specId ? this.templates.find(t => t.spec.id === specId) : this.templates[Math.floor(Math.random() * this.templates.length)];
-    const car = makeCar(tpl, paint || PAINTS[Math.floor(Math.random() * PAINTS.length)]);
+    const pool = this.templates.filter(t => !t.spec.rare || Math.random() < 0.12);
+    const tpl = specId ? this.templates.find(t => t.spec.id === specId) : pool[Math.floor(Math.random() * pool.length)];
+    const car = makeCar(tpl, paint || tpl.spec.paint || PAINTS[Math.floor(Math.random() * PAINTS.length)]);
     this.scene.add(car.obj);
     const ai = { id: forceId !== undefined ? forceId : (this.idPrefix ? this.idPrefix + (uid++) : uid++), car, tpl, state: 'parked', edge: null, t: 0, off: W.LANE, v: 0, spin: 0, steer: 0, heading: 0,
       pos: new THREE.Vector3(), route: [], turn: null, spot: null, owner: null, onArrive: null, aggr: 0.9 + Math.random() * 0.25, brake: false, waitT: 0 };

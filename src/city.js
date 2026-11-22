@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { GB, Buckets, Y, rng, pick } from './geo.js';
 import { building, tower, sides, at, glass, STYLES } from './buildings.js';
-import { house } from './houses.js';
+import { house, villa } from './houses.js';
 import { signMaterial, awningMaterial } from './materials.js';
 import { makeGlassMaterial } from './interior.glsl.js';
 import * as W from './world.js';
@@ -67,6 +67,7 @@ export function buildCity(scene, M, trees) {
     const R = rng(i * 131 + j * 977 + 5);
     if (sp === 'park') park(ctx, rect, R, i, j);
     else if (sp === 'sports') sports(ctx, rect, R);
+    else if (sp === 'villas') villas(ctx, rect, R, i, j);
     else if (sp === 'supermarket') supermarket(ctx, rect, R);
     else if (sp === 'dealership') dealership(ctx, rect, R);
     else if (sp === 'gas_station_block') gasStationBlock(ctx, rect, R);
@@ -340,6 +341,19 @@ function suburb(ctx, rect, R, i, j) {
     // haie de fond
     const zz = front === 'n' ? mid - 0.5 : mid + 0.5;
     for (let x = lot.x0 + 1.5; x < lot.x1 - 1; x += 3) if (R() < 0.8) ctx.props.push({ name: 'shrub_02', x, y: 0.15, z: zz, ry: R() * 6, s: 0.6 });
+  }
+}
+
+const VILLA_NAMES = ['Villa Azur', 'Villa des Pins', 'Villa Horizon', 'Villa Solstice', 'Villa Belvédère', 'Villa Les Oliviers', 'Villa Panorama', 'Villa Cap Lumière', 'Villa Émeraude', 'Villa Riviera', 'Villa Zénith', 'Villa Les Cèdres'];
+let villaN = 0;
+function villas(ctx, rect, R, i, j) {
+  lotGround(ctx, rect, 'grass');
+  const mx = (rect.x0 + rect.x1) / 2, mz = (rect.z0 + rect.z1) / 2;
+  for (const front of ['n', 's']) for (const half of [0, 1]) {
+    const lot = { x0: half ? mx : rect.x0, x1: half ? rect.x1 : mx, z0: front === 'n' ? rect.z0 : mz, z1: front === 'n' ? mz : rect.z1, front };
+    const v = villa(ctx, lot, rng(Math.floor(R() * 1e9)));
+    const price = 950000 + Math.floor(R() * 16) * 100000;
+    W.addPlace({ type: 'house', villa: true, name: VILLA_NAMES[villaN++ % VILLA_NAMES.length], bounds: v.bounds, lot, door: v.door, garage: v.garage, price, rent: Math.round(price / 260), district: 'V' });
   }
 }
 

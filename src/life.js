@@ -154,6 +154,7 @@ export const ICONS = {
 export function districtAt(x, z) {
   const i = Math.floor((x - W.OX) / W.P), j = Math.floor((z - W.OZ) / W.P);
   if (i < 0 || j < 0 || i >= W.NX || j >= W.NZ) return 'Campagne de Lumen';
+  if (W.SPECIAL[i + ',' + j] === 'villas') return W.DISTRICT_NAMES.V;
   return W.DISTRICT_NAMES[W.district(i, j)] || 'Lumen';
 }
 

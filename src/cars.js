@@ -10,6 +10,9 @@ export const CATALOG = [
   { id: 'sigil07',      name: 'Sigil ’07',          cls: 'Break',     file: 'sigil07',      length: 4.85, price: 24500, power: 170, mass: 1520, top: 215, fuel: 65, cons: 7.6 },
   { id: 'fairheaven80', name: 'Fairheaven LT ’80',  cls: 'Grande berline', file: 'fairheaven80', length: 5.4, price: 21500, power: 160, mass: 1750, top: 190, fuel: 75, cons: 11.5 },
   { id: 'lightbody90',  name: 'Lightbody ’90 Utility', cls: 'Utilitaire', file: 'lightbody90', length: 5.5, price: 27900, power: 150, mass: 2100, top: 165, fuel: 80, cons: 12.4 },
+  { id: 'veloce',       name: 'Veloce GT',          cls: 'Supersportive', file: 'veloce',  length: 4.55, price: 245000, power: 570, mass: 1430, top: 325, fuel: 86, cons: 14.5, rotY: Math.PI, paintRe: /^Body_Color$/, glassRe: /Glass_Gray|Projector_Glass|Taillight_Glass/, headRe: /^lights$/, brakeRe: /^(brakes|lights_red)$/, groupWheels: true, rare: true },
+  { id: 'veloceN',      name: 'Veloce GT Nero',     cls: 'Supersportive', file: 'veloce',  length: 4.55, price: 268000, power: 610, mass: 1410, top: 330, fuel: 86, cons: 15.0, rotY: Math.PI, paintRe: /^Body_Color$/, glassRe: /Glass_Gray|Projector_Glass|Taillight_Glass/, headRe: /^lights$/, brakeRe: /^(brakes|lights_red)$/, groupWheels: true, rare: true, paint: '#0d0e10' },
+  { id: 'asti89R',      name: 'Asti Stradale R',    cls: 'Coupé sport préparé', file: 'asti89', length: 4.3, price: 59000, power: 320, mass: 1180, top: 268, fuel: 60, cons: 11.5, paint: '#c81d25' },
   { id: 'canyon75taxi', name: 'Canyon ’75 Taxi',    cls: 'Taxi',      file: 'canyon75taxi', length: 5.2, price: 17500, power: 150, mass: 1700, top: 180, fuel: 70, cons: 11.0, fixedPaint: true },
 ];
 export const PAINTS = ['#f2f2f0', '#101114', '#7d8790', '#1d3c78', '#8a1c1c', '#2f5a3d', '#c9b48a', '#5a5f66', '#b3541e', '#2a6f8f', '#e0c341', '#401a40'];
@@ -21,12 +24,13 @@ export async function loadCarTemplate(id) {
   const spec = CATALOG.find(c => c.id === id);
   const p = (async () => {
     const g = await glb('assets/cars/' + spec.file + '.glb');
-    const src = g.scene; src.updateMatrixWorld(true);
+    const src = g.scene.clone(true); src.updateMatrixWorld(true); // clone : plusieurs variantes peuvent partager le même fichier
     // orientation : avant (phares) vers +z
     const center = (re) => { const b = new THREE.Box3(); src.traverse(o => { if (o.isMesh && re.test(o.name)) b.expandByObject(o); }); return b.isEmpty() ? null : b.getCenter(new THREE.Vector3()); };
     const front = center(/Headlights(?!_Glass)/i) || center(/headlights/i), rear = center(/Brakelights/i) || center(/Taillights/i);
     const wrap = new THREE.Group(); wrap.add(src);
-    if (front && rear) {
+    if (spec.rotY !== undefined) wrap.rotation.y = spec.rotY;
+    else if (front && rear) {
       const d = front.clone().sub(rear); d.y = 0; d.normalize();
       wrap.rotation.y = -Math.atan2(d.x, d.z);
     }
@@ -42,7 +46,17 @@ export async function loadCarTemplate(id) {
     // pivots de roues : on rattache chaque roue à deux groupes (braquage Y → rotation X) centrés sur la roue
     const wheels = {};
     const meshes = []; src.traverse(o => { if (o.isMesh) meshes.push(o); });
-    for (const m of meshes) {
+    // modèles dont chaque roue est un groupe (jante, pneu, étrier…) : on fait pivoter le groupe entier
+    if (spec.groupWheels) {
+      const groups = []; src.traverse(o => { const mm = /^wheel_(fl|fr|rl|rr)$/i.exec(o.name); if (mm && !o.isMesh) groups.push([o, mm[1].toUpperCase()]); });
+      for (const [o, k] of groups) {
+        const wb = new THREE.Box3().setFromObject(o); const wc = wb.getCenter(new THREE.Vector3());
+        const steer = new THREE.Group(); steer.position.copy(wc); steer.userData.wheel = k; root.add(steer);
+        const spin = new THREE.Group(); steer.add(spin); root.updateMatrixWorld(true); spin.attach(o);
+        wheels[k] = { steer, spin, radius: (wb.max.y - wb.min.y) / 2, pos: wc.clone() };
+      }
+    }
+    for (const m of (spec.groupWheels ? [] : meshes)) {
       const mm = /Wheel\w*_(FL|FR|RL|RR)/i.exec(m.name) || /Wheel\w*_(FL|FR|RL|RR)/i.exec(m.parent && m.parent.name || '');
       if (!mm) continue;
       const k = mm[1].toUpperCase();
@@ -60,7 +74,8 @@ export async function loadCarTemplate(id) {
       if (Math.abs(lowest) > 0.03) { for (const ch of root.children) ch.position.y -= lowest; for (const w of wl0) w.pos.y -= lowest; root.updateMatrixWorld(true); }
     }
     // volant : centre et axe de rotation déduits de la géométrie (plan de la jante = plus petite variance)
-    for (const m of meshes) if (/Steering/i.test(m.name)) {
+    if (spec.groupWheels) { let sw = null; src.traverse(o => { if (/^steering_wheel$/i.test(o.name)) sw = o; }); if (sw) { const b = new THREE.Box3().setFromObject(sw), cc = b.getCenter(new THREE.Vector3()); const piv = new THREE.Group(); piv.position.copy(cc); piv.userData.isSteering = true; piv.userData.axis = [0, -0.35, 0.94]; root.add(piv); root.updateMatrixWorld(true); piv.attach(sw); } }
+    for (const m of (spec.groupWheels ? [] : meshes)) if (/Steering/i.test(m.name)) {
       const pos = m.geometry.attributes.position, v = new THREE.Vector3(), pts = [];
       const step = Math.max(1, Math.floor(pos.count / 1500));
       for (let i = 0; i < pos.count; i += step) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); pts.push(v.clone()); }
@@ -84,10 +99,12 @@ export async function loadCarTemplate(id) {
     const lights = { head: [], brake: [], reverse: [], blink: [] };
     for (const m of meshes) {
       const mat = m.material; if (!mat) continue;
-      if (/Bodymat/i.test(mat.name)) m.userData.paint = true;
-      if (/Transperent|Transparent|Glass/i.test(mat.name) && mat.transparent !== undefined && /Transp/i.test(mat.name)) m.userData.glass = true;
+      if ((spec.paintRe || /Bodymat/i).test(mat.name)) m.userData.paint = true;
+      if (/Transp/i.test(mat.name) || (spec.glassRe && spec.glassRe.test(mat.name) && /Glass_Gray/.test(mat.name))) m.userData.glass = true;
       const n = m.name + ' ' + (m.parent ? m.parent.name : '');
-      if (/Head_?lights?/i.test(n) && !/Head_?lights?_Glass/i.test(n)) m.userData.light = 'head';
+      if (spec.headRe && spec.headRe.test(m.name)) m.userData.light = 'head';
+      else if (spec.brakeRe && spec.brakeRe.test(m.name)) m.userData.light = 'brake';
+      else if (/Head_?lights?/i.test(n) && !/Head_?lights?_Glass/i.test(n)) m.userData.light = 'head';
       else if (/Brakelights/i.test(n)) m.userData.light = 'brake';
       else if (/Reverse/i.test(n)) m.userData.light = 'reverse';
       else if (/Blinkers/i.test(n)) m.userData.light = 'blink';
@@ -134,7 +151,7 @@ export function makeCar(tpl, paint) {
   root.traverse(o => {
     if (!o.isMesh) return;
     if (o.material && o.material.name === 'paint' && !tpl.spec.fixedPaint) {
-      if (!pm) { pm = o.material.clone(); pm.color.set(paint || '#ffffff'); }
+      if (!pm) { pm = o.material.clone(); pm.color.set(tpl.spec.paint && !paint ? tpl.spec.paint : (paint || '#ffffff')); }
       o.material = pm;
     }
     const l = o.userData.light;

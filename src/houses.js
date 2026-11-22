@@ -167,3 +167,74 @@ export function house(ctx, lot, r) {
   ctx.colliders.push({ x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, h: H + rh }, { x0: gx0, z0: gz0, x1: gx1, z1: gz1, h: gH });
   return { door: b.door, garage: b.garage, bounds: b, lot };
 }
+
+// Villa d'architecte : volumes décalés (rez vitré + étage en porte-à-faux), toits plats, grandes baies,
+// piscine à débordement, terrasse en bois, pelouse, haies, mur d'enceinte et portail, garage double.
+export function villa(ctx, lot, r) {
+  const B = ctx.B, yG = 0.15;
+  const cx = (lot.x0 + lot.x1) / 2, cz = (lot.z0 + lot.z1) / 2, W = lot.x1 - lot.x0, D = lot.z1 - lot.z0;
+  const front = lot.front; const sgn = front === 's' ? 1 : -1;
+  const wallK = r() < 0.5 ? 'plasterW' : 'concTile';
+  // pelouse
+  B.get('grass').quad(new THREE.Vector3(lot.x0, yG + 0.012, lot.z1), new THREE.Vector3(lot.x1, yG + 0.012, lot.z1), new THREE.Vector3(lot.x1, yG + 0.012, lot.z0), new THREE.Vector3(lot.x0, yG + 0.012, lot.z0), Y,
+    [lot.x0, lot.z1], [lot.x1, lot.z1], [lot.x1, lot.z0], [lot.x0, lot.z0]);
+  // volume du rez (largement vitré)
+  const w1 = W * 0.55, d1 = D * 0.32, x1 = cx - W * 0.12, z1 = cz - sgn * D * 0.06;
+  const b1 = { x0: x1 - w1 / 2, x1: x1 + w1 / 2, z0: z1 - d1 / 2, z1: z1 + d1 / 2 };
+  const H1 = 3.6;
+  for (const s of sides(b1)) {
+    const facing = (s.key === front) || (s.key === (front === 's' ? 'n' : 's'));
+    if (facing) { // façade toute vitrée
+      const n = Math.round(s.L / 2.6), bay = s.L / n;
+      for (let k = 0; k < n; k++) glass(ctx, at(s, bay * (k + 0.5), H1 / 2, -0.05), s.nrm, bay - 0.12, H1 - 0.3, [bay * 2.5, H1, 8, r()], [1, 0, 0.1, 0]);
+      for (let k = 0; k <= n; k++) B.get('aluDark').box(at(s, bay * k, H1 / 2, 0.02), 0.05, H1 / 2, 0.06, s.ax);
+    } else B.get(wallK).wallRect(s.o, s.ax, s.nrm, 0, s.L, 0, H1);
+  }
+  B.get('aluDark').aabb(b1.x0 - 0.4, H1, b1.z0 - 0.4, b1.x1 + 0.4, H1 + 0.35, b1.z1 + 0.4);
+  // étage en porte-à-faux, décalé
+  const w2 = W * 0.42, d2 = D * 0.28, x2 = cx + W * 0.05, z2 = z1 + sgn * 1.6;
+  const b2 = { x0: x2 - w2 / 2, x1: x2 + w2 / 2, z0: z2 - d2 / 2, z1: z2 + d2 / 2 };
+  const y2 = H1 + 0.35, H2 = 3.3;
+  for (const s of sides(b2)) {
+    const g = B.get(wallK === 'plasterW' ? 'concTile' : 'plasterW');
+    g.wallRect(s.o, s.ax, s.nrm, 0, s.L, y2, y2 + H2);
+    if (s.key === front) { // bandeau vitré
+      glass(ctx, at(s, s.L / 2, y2 + 1.6, 0.06), s.nrm, s.L * 0.8, 1.9, [s.L, H2, 5, r()], [0, 0, 0.6, 0.2]);
+      B.get('aluDark').box(at(s, s.L / 2, y2 + 0.6, 0.12), s.L * 0.41, 0.04, 0.06, s.ax);
+    }
+  }
+  B.get('stone').aabb(b2.x0 - 0.3, y2 + H2, b2.z0 - 0.3, b2.x1 + 0.3, y2 + H2 + 0.3, b2.z1 + 0.3);
+  B.get('stone').aabb(b2.x0, y2 - 0.25, b2.z0, b2.x1, y2, b2.z1, 8 | 1 | 2 | 16 | 32);
+  // piscine + plage en bois
+  const px0 = cx + W * 0.05, px1 = px0 + W * 0.32, pz = cz + sgn * D * 0.28, pd = D * 0.16;
+  const pool = { x0: Math.min(px0, px1), x1: Math.max(px0, px1), z0: pz - pd / 2, z1: pz + pd / 2 };
+  B.get('fence').aabb(pool.x0 - 3, yG, pool.z0 - 2.5, pool.x1 + 3, yG + 0.08, pool.z1 + 2.5, 4);
+  B.get('stone').aabb(pool.x0 - 0.4, yG, pool.z0 - 0.4, pool.x1 + 0.4, yG + 0.12, pool.z1 + 0.4, 4 | 1 | 2 | 16 | 32);
+  const wg = new THREE.PlaneGeometry(pool.x1 - pool.x0, pool.z1 - pool.z0).rotateX(-Math.PI / 2); wg.translate((pool.x0 + pool.x1) / 2, yG + 0.1, (pool.z0 + pool.z1) / 2);
+  B.get('poolWater').addGeometry(wg);
+  for (let k = 0; k < 2; k++) ctx.props.push({ name: 'outdoor_table_chair_set_01', x: pool.x0 - 1.8, y: yG + 0.08, z: pool.z0 + 1 + k * 2.4, ry: Math.PI / 2, s: 1 });
+  ctx.colliders.push({ x0: pool.x0, z0: pool.z0, x1: pool.x1, z1: pool.z1, h: 0.5 });
+  // garage double
+  const gx0 = lot.x1 - 9, gx1 = lot.x1 - 2, gz0 = front === 's' ? lot.z1 - 13 : lot.z0 + 5, gz1 = gz0 + 7;
+  const gb = { x0: gx0, x1: gx1, z0: gz0, z1: gz1 };
+  let garage = null;
+  for (const s of sides(gb)) {
+    if (s.key === front) { const g = B.get(wallK); g.wallRect(s.o, s.ax, s.nrm, 0, 0.4, 0, 3); g.wallRect(s.o, s.ax, s.nrm, s.L - 0.4, s.L, 0, 3); g.wallRect(s.o, s.ax, s.nrm, 0.4, s.L - 0.4, 2.5, 3);
+      const a = at(s, 0.4, 0, -0.1), c = at(s, s.L - 0.4, 0, -0.1); B.get('garageDoor').quad(a, c, c.clone().setY(2.5), a.clone().setY(2.5), s.nrm, [0, 0], [s.L - 0.8, 0], [s.L - 0.8, 2.5], [0, 2.5]);
+      garage = { p: at(s, s.L / 2, 0, 4), nrm: s.nrm.clone(), rotY: Math.atan2(s.nrm.x, s.nrm.z) };
+    } else B.get(wallK).wallRect(s.o, s.ax, s.nrm, 0, s.L, 0, 3);
+  }
+  B.get('aluDark').aabb(gx0 - 0.2, 3, gz0 - 0.2, gx1 + 0.2, 3.25, gz1 + 0.2);
+  // allée + mur d'enceinte + portail
+  const fz = front === 's' ? lot.z1 - 0.2 : lot.z0 + 0.2;
+  B.get('drive').aabb(gx0, yG, Math.min(fz, front === 's' ? gz1 : gz0), gx1, yG + 0.04, Math.max(fz, front === 's' ? gz1 : gz0), 4);
+  const doorX = x1; B.get('drive').aabb(doorX - 0.8, yG, Math.min(fz, front === 's' ? b1.z1 : b1.z0), doorX + 0.8, yG + 0.035, Math.max(fz, front === 's' ? b1.z1 : b1.z0), 4);
+  const wall = B.get('stone');
+  for (const [a, b] of [[lot.x0 + 0.3, doorX - 1.4], [doorX + 1.4, gx0 - 0.5]]) if (b - a > 0.5) wall.aabb(a, yG, fz - 0.15, b, yG + 1.3, fz + 0.15);
+  B.get('iron').aabb(gx0 - 0.4, yG + 0.1, fz - 0.03, gx1 + 0.4, yG + 1.6, fz + 0.03, 16 | 32);
+  for (let z = lot.z0 + 2; z < lot.z1 - 2; z += 2.8) ctx.props.push({ name: 'shrub_02', x: lot.x0 + 0.8, y: yG, z, ry: r() * 6, s: 0.7 });
+  for (let k = 0; k < 3; k++) ctx.trees.add(lot.x0 + 3 + r() * (W - 6), front === 's' ? lot.z0 + 3 + r() * 6 : lot.z1 - 3 - r() * 6, { scale: 1.1 + r() * 0.4, y: yG });
+  ctx.colliders.push({ x0: b1.x0, z0: b1.z0, x1: b1.x1, z1: b1.z1, h: H1 + H2 }, { x0: gx0, z0: gz0, x1: gx1, z1: gz1, h: 3 });
+  const door = { p: new THREE.Vector3(doorX, 0, front === 's' ? b1.z1 + 1.2 : b1.z0 - 1.2), nrm: new THREE.Vector3(0, 0, sgn), rotY: front === 's' ? 0 : Math.PI };
+  return { door, garage, bounds: b1, lot };
+}
