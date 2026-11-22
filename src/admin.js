@@ -36,7 +36,7 @@ export class Admin {
     if (tab === 'monde') rows = [
       ...[6, 9, 12, 15, 18, 20, 22, 0].map(h => this.btn(String(h).padStart(2, '0') + 'h00', () => { g.hour = h; })),
       this.btn('Police désactivée : ' + (this.noPolice ? 'OUI' : 'non'), () => { this.noPolice = !this.noPolice; if (this.noPolice) { g.police.wanted = 0; g.police.renderStars(); } }, this.noPolice),
-      this.btn('Recherché ★★★★★', () => g.police.addWanted(5, 'admin')), this.btn('Effacer les étoiles', () => { g.police.wanted = 0; g.police.renderStars(); }),
+      this.btn('Recherché ★★★★★', () => g.police.addWanted(5, 'admin', true)), this.btn('Effacer les étoiles', () => { g.police.wanted = 0; g.police.renderStars(); }),
       this.btn('+15 voitures en circulation', () => { for (let k = 0; k < 15; k++) { const e = W.edges[Math.floor(Math.random() * W.edges.length)]; const ai = g.traffic.newCar(); ai.edge = e; ai.t = W.RW + 3; ai.state = 'drive'; ai.v = 8; g.traffic.wander(ai); } }),
       this.btn('Temps x10 : ' + (g.timeScale > 30 ? 'OUI' : 'non'), () => { g.timeScale = g.timeScale > 30 ? 30 : 300; }, g.timeScale > 30),
     ];

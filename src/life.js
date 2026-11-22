@@ -127,6 +127,9 @@ export class Minimap {
     for (const pl of W.places) { const ic = ICONS[pl.type]; if (!ic || !pl.door) continue; const [a, b] = pt(pl.door.p.x, pl.door.p.z); if (Math.abs(a) > s || Math.abs(b) > s) continue; x.save(); x.translate(a, b); x.rotate(-(yaw + Math.PI)); x.fillStyle = ic[1]; x.beginPath(); x.arc(0, 0, 6 * devicePixelRatio, 0, 7); x.fill(); x.fillStyle = '#fff'; x.font = `bold ${8 * devicePixelRatio}px Inter`; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(ic[0], 0, 0.5); x.restore(); }
     // véhicules du joueur
     for (const c of g.ownedAI || []) { const [a, b] = pt(c.pos.x, c.pos.z); x.fillStyle = '#6fb7ff'; x.fillRect(a - 3, b - 3, 6, 6); }
+    // zone de recherche de la police
+    const se = g.police && g.police.wanted && g.police.search;
+    if (se) { const [a, b] = pt(se.pos.x, se.pos.z); x.fillStyle = 'rgba(255,60,60,.16)'; x.strokeStyle = 'rgba(255,80,80,.6)'; x.lineWidth = 2; x.beginPath(); x.arc(a, b, se.r * sc, 0, 7); x.fill(); x.stroke(); }
     // police
     for (const c of (g.police && g.police.units) || []) { const [a, b] = pt(c.ai.pos.x, c.ai.pos.z); x.fillStyle = (Math.floor(g.time * 4) % 2) ? '#ff3b3b' : '#3b7bff'; x.beginPath(); x.arc(a, b, 4 * devicePixelRatio, 0, 7); x.fill(); }
     // autres joueurs

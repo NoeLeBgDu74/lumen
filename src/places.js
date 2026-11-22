@@ -186,12 +186,12 @@ export class Places {
     L.notify('🔓 Crochetage de la serrure…');
     setTimeout(async () => {
       g.input.enabled = true;
-      if (Math.random() < (night ? 0.12 : 0.35) + (occupied ? 0.3 : 0)) { L.notify('🚨 Repéré·e par un voisin !', 'warn'); g.police.addWanted(occupied ? 3 : 2, 'cambriolage'); return; }
+      if (Math.random() < (night ? 0.12 : 0.35) + (occupied ? 0.3 : 0)) { L.notify('🚨 Repéré·e !', 'warn'); g.police.report(occupied ? 3 : 2, 'cambriolage', occupied ? 'L’occupant' : 'Un voisin', 3); return; }
       await L.skip(0.5, () => {
         p.robbedDay = g.day;
         const loot = Math.round((p.type === 'house' ? 300 + Math.random() * 1500 : p.type === 'office' || p.type === 'bank' ? 500 + Math.random() * 2500 : 120 + Math.random() * 700) * (night ? 1.2 : 0.8));
         L.money(loot, 'cambriolage · ' + p.name);
-        if (Math.random() < 0.4) g.police.addWanted(1, 'cambriolage signalé');
+        if (Math.random() < 0.4) g.police.report(1, 'cambriolage', 'Un voisin', 20 + Math.random() * 30);
         for (const q of g.pop.people) if (q.home === p) g.pop.remember(q, 'a été cambriolé·e');
       });
     }, 2600);
@@ -318,7 +318,7 @@ export class Places {
     return [{ label: 'Braquer la caisse ⚠', run: () => {
       const g = this.g, L = g.life; if (g.lastRob && g.time - g.lastRob < 120) { L.notify('Trop tôt, la police surveille', 'warn'); return; }
       g.lastRob = g.time; const loot = 150 + Math.floor(Math.random() * 450);
-      L.money(loot, 'braquage de ' + p.name); g.police.addWanted(3, 'braquage');
+      L.money(loot, 'braquage de ' + p.name); g.police.report(3, 'braquage de ' + p.name, 'Le commerçant');
     } }];
   }
 

@@ -8,19 +8,49 @@ const $ = (id) => document.getElementById(id);
 
 export class Police {
   constructor(game) {
-    this.g = game; this.wanted = 0; this.heat = 0; this.units = []; this.lostT = 0; this.bustT = 0; this.audio = null;
+    this.g = game; this.wanted = 0; this.heat = 0; this.units = []; this.lostT = 0; this.bustT = 0; this.audio = null; this.pending = []; this.search = null; this.knownCar = null;
   }
-  addWanted(n, why) {
-    const before = this.wanted;
-    this.wanted = Math.min(5, Math.max(this.wanted, 0) + n); this.lostT = 0;
-    if (this.wanted > before) this.g.life.notify(`Recherché·e : ${'★'.repeat(this.wanted)} (${why})`, 'warn');
+  // Un délit ne déclenche rien tout seul : il faut un témoin (passant, habitant, policier) qui le voie et appelle.
+  addWanted(n, why, direct = false) {
+    const g = this.g;
+    if (direct) return this.raise(n, why, (g.veh ? g.veh.pos : g.player.pos).clone(), null);
+    const pos = (g.veh ? g.veh.pos : g.player.pos).clone();
+    const car = g.veh ? { key: g.veh.car.tpl.spec.id + (g.veh.car.paint ? g.veh.car.paint.color.getHexString() : ''), name: g.veh.car.tpl.spec.name } : null;
+    const seen = (q) => q.distanceTo(pos) < 38 && g.world.segmentFree(q.x, 1.5, q.z, pos.x, 1.5, pos.z) > 0.97;
+    // un policier témoin = signalement immédiat
+    for (const u of this.units) if (u.ai.pos.distanceTo(pos) < 70 && g.world.segmentFree(u.ai.pos.x, 1.4, u.ai.pos.z, pos.x, 1.4, pos.z) > 0.97) { this.raise(n, why, pos, car, true); u.mode = 'chase'; return; }
+    const w = [];
+    for (const p of g.peds.list) if (p.state !== 'down' && seen(p.pos)) w.push({ name: 'Un passant', obj: p, ped: true });
+    for (const p of g.pop.people) if (p.char && !p.hurt && seen(p.pos)) w.push({ name: p.first + ' ' + p.last, obj: p });
+    if (!w.length) { if (n >= 2) g.life.notify('Aucun témoin… pour cette fois'); return; }
+    // chaque témoin peut appeler après un délai (s'il n'est pas neutralisé entre-temps)
+    const inc = { n, why, pos, car, reported: false };
+    for (const t of w.slice(0, 4)) {
+      if (Math.random() > 0.75) continue;
+      if (!t.ped) g.pop.remember(t.obj, `a été témoin d'un délit (${why}) commis par ${g.profile.first}`);
+      this.pending.push({ inc, t, at: g.time + 4 + Math.random() * 14 });
+    }
+    if (this.pending.length) g.life.notify('👀 Des témoins vous ont vu·e…', 'warn');
+  }
+  // Signalement par une personne précise (commerçant braqué, voisin…) après un délai.
+  report(n, why, who, delay = 6 + Math.random() * 8) {
+    const g = this.g; const pos = (g.veh ? g.veh.pos : g.player.pos).clone();
+    this.pending.push({ inc: { n, why, pos, car: null, reported: false }, t: { name: who, obj: {} }, at: g.time + delay });
+    g.life.notify(`☎ ${who} appelle la police…`, 'warn');
+  }
+  raise(n, why, pos, car, byPolice) {
+    const g = this.g, before = this.wanted;
+    this.wanted = Math.min(5, before ? Math.max(before + (n >= 2 ? 1 : 0), n) : n); this.lostT = 0;
+    this.search = { pos: pos.clone(), r: 160 - this.wanted * 15, t: g.time };
+    if (car) { this.knownCar = car; g.life.notify(`🚘 Plaque relevée : ${car.name} recherchée`, 'warn'); }
+    if (this.wanted > before) g.life.notify(`${byPolice ? '🚓 La police vous a vu·e' : '📞 Un témoin a appelé la police'} : ${'★'.repeat(this.wanted)} (${why})`, 'warn');
     this.renderStars();
   }
   renderStars() { $('stars').textContent = this.wanted ? '★'.repeat(this.wanted) + '☆'.repeat(5 - this.wanted) : ''; }
 
   spawnUnit() {
-    const g = this.g, p = g.veh ? g.veh.pos : g.player.pos;
-    const a = Math.random() * Math.PI * 2, d = 110 + Math.random() * 60;
+    const g = this.g, p = this.search ? this.search.pos : (g.veh ? g.veh.pos : g.player.pos);
+    const a = Math.random() * Math.PI * 2, d = 120 + Math.random() * 80;
     let x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
     const r = g.world.resolve(x, z, 2.5); x = r.x; z = r.z;
     const ai = g.traffic.newCar('fairheaven80', '#16181d');
@@ -32,7 +62,7 @@ export class Police {
     bar.add(red, blue, new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 0.26), new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.6, roughness: 0.4 })));
     bar.position.set(0, ai.tpl.size.y + 0.02, -0.2); ai.car.obj.add(bar);
     // bande blanche « POLICE » sur les portières
-    const u = { ai, red: red.material, blue: blue.material, stuck: 0 };
+    const u = { ai, red: red.material, blue: blue.material, stuck: 0, mode: 'search', goal: null };
     this.units.push(u);
     return u;
   }
@@ -42,18 +72,37 @@ export class Police {
     const g = this.g; if (!g.traffic) return;
     this.updateArrest(dt);
     const target = g.veh ? g.veh.pos : g.player.pos;
+    // appels des témoins
+    for (const c of [...this.pending]) {
+      if (g.time < c.at) continue;
+      this.pending.splice(this.pending.indexOf(c), 1);
+      const o = c.t.obj; if ((c.t.ped && o.state === 'down') || o.hurt) continue; // témoin neutralisé
+      if (!c.inc.reported) { c.inc.reported = true; this.raise(c.inc.n, c.inc.why + ' — signalé par ' + c.t.name.toLowerCase(), c.inc.pos, c.inc.car); }
+    }
+    const inKnownCar = this.knownCar && g.veh && (g.veh.car.tpl.spec.id + (g.veh.car.paint ? g.veh.car.paint.color.getHexString() : '')) === this.knownCar.key;
     // nombre d'unités selon le niveau
     const want = this.wanted ? Math.min(6, this.wanted + 1) : 0;
     if (this.units.length < want && (!this._spawnT || g.time - this._spawnT > 4)) { this._spawnT = g.time; this.spawnUnit(); }
     let seen = false, close = false;
     for (const u of [...this.units]) {
       const ai = u.ai;
-      const to = target.clone().sub(ai.pos); to.y = 0; const dist = to.length();
+      const dist = target.distanceTo(ai.pos);
+      // repérage : vue directe du joueur (plus loin si la voiture recherchée est reconnue)
+      const sight = inKnownCar ? 120 : 60;
+      const sees = this.wanted && dist < sight && g.world.segmentFree(ai.pos.x, 1.4, ai.pos.z, target.x, 1.4, target.z) > 0.97;
+      if (sees) { u.mode = 'chase'; this.search = { pos: target.clone(), r: 60, t: g.time }; }
+      else if (u.mode === 'chase' && dist > sight * 1.3) { u.mode = 'search'; u.goal = null; }
+      let dest = target;
+      if (u.mode !== 'chase' && this.search) {
+        if (!u.goal || ai.pos.distanceTo(u.goal) < 12) { const a = Math.random() * 6.28, r = Math.random() * this.search.r; u.goal = this.search.pos.clone().add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r)); }
+        dest = u.goal;
+      }
+      const to = dest.clone().sub(ai.pos); to.y = 0;
       if (!this.wanted) { // retour à la circulation puis disparition
         u.leave = (u.leave || 0) + dt; if (u.leave > 8 || dist > 200) { this.removeUnit(u); continue; }
       }
       const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-      const vmax = this.wanted ? (dist < 12 ? Math.max(2, dist * 0.8) : 22 + this.wanted * 2) : 8;
+      const vmax = !this.wanted ? 8 : u.mode === 'chase' ? (dist < 12 ? Math.max(2, dist * 0.8) : 22 + this.wanted * 2) : 13;
       ai.heading += THREE.MathUtils.clamp(dh, -1.6 * dt * (1 + ai.v / 20), 1.6 * dt * (1 + ai.v / 20));
       ai.v += THREE.MathUtils.clamp(vmax - ai.v, -9 * dt, 6 * dt);
       if (Math.abs(dh) > 1.2) ai.v *= Math.pow(0.4, dt);
@@ -71,15 +120,16 @@ export class Police {
       u.red.emissiveIntensity = this.wanted ? (ph ? 12 : 0) : 0; u.blue.emissiveIntensity = this.wanted ? (ph ? 0 : 12) : 0;
       // collision avec la voiture du joueur
       if (g.veh && dist < (ai.tpl.size.z / 2 + 1.6)) { g.veh.vz *= 0.85; if (!u.rammed && Math.abs(g.veh.vz) > 6) { u.rammed = true; this.addWanted(1, 'collision avec la police'); } }
-      if (dist < 70) seen = true;
-      if (dist < 8) close = true;
+      if (sees) seen = true;
+      if (dist < 8 && u.mode === 'chase') close = true;
     }
     // fuite / arrestation
     if (this.wanted) {
       if (seen) this.lostT = 0; else this.lostT += dt;
       const need = 10 + this.wanted * 6;
       $('stars').classList.toggle('blink', !seen);
-      if (this.lostT > need) { this.wanted--; this.lostT = 0; this.renderStars(); if (!this.wanted) g.life.notify('Vous avez semé la police', 'ok'); }
+      if (inKnownCar && !seen) this.lostT -= dt * 0.5; // la voiture recherchée vous trahit : changez de véhicule
+      if (this.lostT > need) { this.wanted--; this.lostT = 0; this.renderStars(); if (!this.wanted) { g.life.notify('Vous avez semé la police', 'ok'); this.search = null; this.knownCar = null; } }
       const spd = g.veh ? g.veh.kmh : g.player.speed * 3.6;
       if (close && spd < 8 && !this.arrest) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt);
       if (this.bustT > 1.2 && !this.arrest) this.startArrest();
