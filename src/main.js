@@ -29,6 +29,7 @@ import { Actions } from './actions.js';
 import { Story } from './story.js';
 import { playIntro } from './intro.js';
 import { Coop } from './coop.js';
+import { Transit } from './transit.js';
 import { Radio, PhotoMode, needsEffects, OUTFITS, PANTS } from './extras.js';
 import { Audio } from './audio.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
@@ -107,7 +108,7 @@ async function start() {
   game.minimap = new Minimap(game);
   game.peds = new Peds(game); game.peds.max = Math.max(16, R.q.npc + 8);
   game.markers = new Markers(scene);
-  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M); game.homeInt = new HomeInterior(game); game.actions = new Actions(game); game.story = new Story(game); game.coop = new Coop(game); game.radio = new Radio(game); game.photo = new PhotoMode(game);
+  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M); game.homeInt = new HomeInterior(game); game.actions = new Actions(game); game.story = new Story(game); game.coop = new Coop(game); game.transit = new Transit(game); try { game.transit.build(); } catch (e) { console.warn('navettes', e); } game.radio = new Radio(game); game.photo = new PhotoMode(game);
   addEventListener('mousedown', (e) => { if (game.photo.on && e.button === 0) game.photo.shoot(); }); game.audio = new Audio(game);
   game.openWardrobe = () => { createCharacter(scene, player, camera).then(() => { setPlayerChar(scene, player, game.profile); }); };
   buildRadars(scene);
@@ -159,6 +160,7 @@ async function start() {
       taxiUpdate(dt);
       if (game.seq) seqUpdate(dt);
       else if (game.taxi && game.taxi.phase === 'ride') { /* passager du taxi : géré par taxiUpdate */ }
+      else if (game.busRide) { /* passager de la navette : géré par transit */ }
       else if (game.passenger) { const P = game.passenger, ch = player.char; ch.play('sit', 0.3); ch.update(dt); const wp = P.obj.getWorldPosition(new THREE.Vector3()); player.pos.copy(wp); const [mx, my] = input.consumeMouse(); player.camYaw -= mx * 0.0024; player.camPitch = THREE.MathUtils.clamp(player.camPitch + my * 0.002, -0.1, 0.9); player.updateCamera(dt, wp, Math.max(player.camDist, 7), 1.3); if (!P.R.carState || !game.net.remotes[P.R.id]) toggleCar(); }
       else if (game.veh) driveUpdate(dt);
       else if (game.admin && game.admin.fly) { game.admin.update(dt); player.update(dt, input); player.updateCamera(dt, player.pos); }
@@ -238,6 +240,8 @@ function doorPoint(car) { const t = car.tpl; return car.obj.localToWorld(new THR
 function toggleCar() {
   if (game.seq) return;
   const pl = game.player;
+  if (game.busRide) return game.transit.alight();
+  if (!game.veh && game.transit) { const b = game.transit.nearBus(pl.pos); if (b && !nearestCar(2.5)) return game.transit.board(b); }
   if (game.taxi && game.taxi.phase === 'waiting' && pl.pos.distanceTo(game.taxi.ai.pos) < 6) { const ai = game.taxi.ai; game.actions.run({ to: ai.car.obj.localToWorld(new THREE.Vector3(-(ai.tpl.size.x / 2 + 0.5), 0, -0.6)), face: ai.heading + Math.PI / 2, arms: 'reach', dur: 0.5 }).then(boardTaxi); return; }
   if (game.taxi && game.taxi.phase === 'ride') return;
   // passager dans la voiture d'un autre joueur
@@ -272,19 +276,30 @@ function ejectDriver(ai) {
 }
 function fxUpdate(dt) {
   for (const f of [...fx]) {
-    f.t += dt; const ch = f.ch;
-    if (f.t < 0.9) { const k = f.t / 0.9; ch.obj.position.lerpVectors(f.from, f.door.clone().setY(0.0), k * k); ch.obj.rotation.y = f.ai.car.obj.rotation.y + Math.PI / 2 * k; if (k > 0.4) ch.play('idle', 0.3); }
-    else {
-      if (!f.away) { f.away = ch.obj.position.clone().sub(f.ai.pos).setY(0).normalize(); ch.play('run', 0.25); }
+    f.t += dt; const ch = f.ch, carYaw = f.ai.car.obj.rotation.y;
+    const side = new THREE.Vector3(Math.cos(carYaw), 0, -Math.sin(carYaw)); // côté conducteur
+    if (f.t < 0.8) { // tiré hors du siège par le joueur
+      const k = f.t / 0.8; ch.obj.position.lerpVectors(f.from, f.door.clone().setY(0.0), k * k); ch.obj.rotation.y = carYaw + Math.PI / 2 * k; if (k > 0.3) ch.play('idle', 0.2);
+    } else if (f.t < 1.5) { // jeté au sol : chute vers l'extérieur
+      if (!f.thrown) { f.thrown = true; f.base = ch.obj.position.clone(); game.audio && game.audio.burst(0.15, 350, 0.4); game.audio && game.audio.scream(f.owner ? f.owner.female : false, 0.16); }
+      const k = (f.t - 0.8) / 0.7;
+      ch.obj.position.copy(f.base).addScaledVector(side, 1.6 * Math.sin(k * Math.PI / 2)); ch.obj.position.y = groundHeight(ch.obj.position.x, ch.obj.position.z) + 0.12 * k;
+      ch.obj.rotation.set(-Math.PI / 2 * Math.min(1, k * 1.3), carYaw + Math.PI / 2, 0, 'YXZ');
+    } else if (f.t < 3.6) { // au sol, sonné
+      ch.obj.rotation.set(-Math.PI / 2, carYaw + Math.PI / 2, 0, 'YXZ');
+    } else if (f.t < 4.3) { // se relève
+      const k = (f.t - 3.6) / 0.7; ch.obj.rotation.set(-Math.PI / 2 * (1 - k), carYaw + Math.PI / 2, 0, 'YXZ'); ch.obj.position.y = groundHeight(ch.obj.position.x, ch.obj.position.z) + 0.12 * (1 - k);
+    } else { // s'enfuit en courant
+      if (!f.away) { f.away = side.clone(); ch.play('run', 0.25); ch.obj.rotation.set(0, 0, 0); game.audio && game.audio.scream(f.owner ? f.owner.female : false, 0.12); }
       const nx = ch.obj.position.x + f.away.x * 5.2 * dt, nz = ch.obj.position.z + f.away.z * 5.2 * dt;
       const r = game.world.resolve(nx, nz, 0.3); ch.obj.position.set(r.x, groundHeight(r.x, r.z), r.z); if (r.hit) f.away.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.8);
       ch.obj.rotation.y = Math.atan2(f.away.x, f.away.z);
-      if (f.t > 1.6 && f.owner) { // l'habitant reprend sa vie : il rentre à pied
+      if (f.t > 5.2 && f.owner) { // l'habitant reprend sa vie : il rentre à pied
         const p = f.owner; p.pos.copy(ch.obj.position); p.state = 'walk'; p.path = walkPathTo(p.pos, p.home.door.p); p.pi = 0; p.task = { go: p.home, why: 'rentrer après le vol', stay: 12 };
         p.onArrive = () => game.pop.arrive(p, p.task);
         game.R.scene.remove(ch.obj); fx.splice(fx.indexOf(f), 1); continue;
       }
-      if (f.t > 7) { game.R.scene.remove(ch.obj); fx.splice(fx.indexOf(f), 1); continue; }
+      if (f.t > 10) { game.R.scene.remove(ch.obj); fx.splice(fx.indexOf(f), 1); continue; }
     }
     ch.update(dt);
   }
@@ -382,7 +397,7 @@ function seqUpdate(dt) {
       let dy = face - pl.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); pl.yaw += dy * Math.min(1, dt * 10);
       ch.obj.rotation.y = pl.yaw; ch.obj.position.copy(pl.pos);
       if (s.phase === 'pull' && s.t > 0.35) pl.pos.addScaledVector(new THREE.Vector3(Math.sin(face), 0, Math.cos(face)), -dt * 0.6); // recul en tirant
-      if (s.t > (s.phase === 'break' ? 1.6 : 1.1)) { if (s.phase === 'break' && Math.random() < 0.3) { game.life.notify('🚨 Alarme !'); game.police.addWanted(1, 'alarme de voiture'); } s.phase = 'sit'; s.t = 0; s.from = pl.pos.clone(); s.fromYaw = pl.yaw; ch.play('sit', 0.7); }
+      if (s.t > (s.phase === 'break' ? 1.6 : 1.5)) { if (s.phase === 'break' && Math.random() < 0.3) { game.life.notify('🚨 Alarme !'); game.police.addWanted(1, 'alarme de voiture'); } s.phase = 'sit'; s.t = 0; s.from = pl.pos.clone(); s.fromYaw = pl.yaw; ch.play('sit', 0.7); }
     } else {
       s.t += dt; const k = Math.min(1, s.t / 1.2), e = k * k * (3 - 2 * k);
       const seat = car.obj.localToWorld(seatOf(car)); seat.y -= ch.hipH - 0.05;
@@ -494,6 +509,8 @@ function interactPrompt() {
   if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant') + ' &nbsp; <kbd>G</kbd>Voler'; return; } }
   if (!game.veh && !game.seq) { const th = game.peds.list.find(p => p.thief && !p.caught && p.pos.distanceTo(game.player.pos) < 2.6); if (th) { el.hidden = false; el.innerHTML = '<kbd>G</kbd>Plaquer le voleur'; return; } }
   if (!game.veh && !game.seq) { const pd = game.peds.nearest(game.player.pos); if (pd) { el.hidden = false; el.innerHTML = '<kbd>G</kbd>Voler ce passant'; return; } }
+  if (game.busRide) { el.hidden = true; return; }
+  if (!game.veh && game.transit && game.transit.nearBus(game.player.pos)) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans la navette (2 €)'; return; }
   if (game.taxi && game.taxi.phase === 'waiting' && game.player.pos.distanceTo(game.taxi.ai.pos) < 6) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans le taxi'; return; }
   if (!game.veh && !game.seq && !game.passenger) { const rc = game.net.nearRemoteCar(game.player.pos); if (rc && !nearestCar(2.5)) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter avec ' + rc.R.name; return; } }
   if (!game.veh && !game.seq) { const pl = game.places.nearest(game.player.pos); if (pl) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>' + game.places.label(pl) + (game.places.isOpen(pl) ? '' : ' <span style="color:#ff7b6b">· fermé</span>'); return; } }
@@ -656,6 +673,7 @@ let pedHitT = 0;
 function gameplayUpdate(dt) {
   game.actions.update(dt);
   if (game.coop) game.coop.update(dt);
+  if (game.transit) game.transit.update(dt);
   game.radio.update();
   game.fxT = (game.fxT || 0) + dt; if (game.fxT > 0.5) { game.fxT = 0; needsEffects(game); }
   if (game.input.pressed('KeyM') && (game.veh || game.taxi)) game.radio.cycle();
