@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LUMEN — simulation de vie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="src/ui.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="loading">
+  <div class="brand">LUMEN</div>
+  <div class="tag">Une vie. Une ville.</div>
+  <div class="bar"><i id="loadbar"></i></div>
+  <div id="loadtxt">Initialisation…</div>
+</div>
+
+<div id="hud" hidden>
+  <div id="clockbox"><div id="clock">08:00</div><div id="day">Lundi · Jour 1</div><div id="money">1 250 €</div></div>
+  <div id="needs"></div>
+  <div id="prompt" hidden></div>
+  <div id="toast"></div>
+  <div id="speedo" hidden><b id="kmh">0</b><span>km/h</span><em id="gear">D</em></div>
+  <div id="help">ZQSD/WASD bouger · Maj courir · E interagir · F monter/descendre · T accélérer le temps · Échap menu</div>
+</div>
+
+<div id="fade"></div>
+
+<div id="menu" hidden>
+  <div class="panel">
+    <h1>LUMEN</h1>
+    <h3>Qualité graphique</h3>
+    <div class="row" id="qrow">
+      <button data-q="low">Basse</button><button data-q="medium">Moyenne</button><button data-q="high">Haute</button><button data-q="ultra">Ultra</button>
+    </div>
+    <div class="stat" id="stats"></div>
+    <h3>Heure</h3>
+    <div class="row"><input type="range" id="tod" min="0" max="24" step="0.1"></div>
+    <button id="resume" class="primary">Reprendre</button>
+    <p class="credits">Voitures : série « Low poly model » par Daniel Zhabotinsky (Sketchfab, CC-BY 4.0). Personnages : Mixamo (Adobe) via exemples three.js, avatar Ready Player Me. Ciels, textures et mobilier : Poly Haven (CC0). Moteur : three.js.</p>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
