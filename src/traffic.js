@@ -73,6 +73,16 @@ export class Traffic {
     if (!ai.edge) { const n = W.nearestNode(ai.pos.x, ai.pos.z); ai.edge = W.edges[W.nodes[n].links[0]]; ai.t = W.RW + 2; }
   }
 
+  // la voie opposée est-elle libre sur ~45 m devant ?
+  laneFree(ai, e) {
+    for (const o of this.cars) {
+      if (o === ai || o.state === 'parked') continue;
+      const dx = o.pos.x - ai.pos.x, dz = o.pos.z - ai.pos.z, f = dx * e.dir.x + dz * e.dir.z;
+      const lat = dx * -e.dir.z + dz * e.dir.x;
+      if (f > -6 && f < 45 && lat < 0 && lat > -5.5) return false;
+    }
+    return true;
+  }
   nextEdge(ai) {
     const node = ai.edge.b;
     let nxt = null;
@@ -107,13 +117,14 @@ export class Traffic {
   gapAhead(ai, obstacles, range = 40) {
     const fw = tmp.set(Math.sin(ai.heading), 0, Math.cos(ai.heading));
     let gap = range;
-    const test = (p, len) => {
+    this._blk = null;
+    const test = (p, len, who) => {
       const dx = p.x - ai.pos.x, dz = p.z - ai.pos.z;
       const f = dx * fw.x + dz * fw.z; if (f <= 0 || f > range) return;
       const l = Math.abs(dx * fw.z - dz * fw.x); if (l > 1.6) return;
-      gap = Math.min(gap, f - len);
+      if (f - len < gap) { gap = f - len; this._blk = who || null; }
     };
-    for (const o of this.cars) { if (o === ai || o.state === 'parked') continue; test(o.pos, (o.tpl.size.z + ai.tpl.size.z) / 2 + 1.5); }
+    for (const o of this.cars) { if (o === ai || o.state === 'parked') continue; test(o.pos, (o.tpl.size.z + ai.tpl.size.z) / 2 + 1.5, o); }
     for (const o of obstacles) test(o, o.len || 3);
     return gap;
   }
@@ -137,7 +148,7 @@ export class Traffic {
       stopT = tgt.t;
       const toGo = stopT - ai.t;
       if (toGo < 14) { ai.off = THREE.MathUtils.lerp(W.PARK, W.LANE, THREE.MathUtils.clamp((toGo - 2) / 12, 0, 1)); ai.blink = (Math.floor(this.time * 3) % 2) * 3; }
-    } else if (ai.off > W.LANE) ai.off = Math.max(W.LANE, ai.off - dt * 1.2); else ai.blink = 0;
+    } else if (ai.off > W.LANE) ai.off = Math.max(W.LANE, ai.off - dt * 1.2); else if (!ai.passing) ai.blink = 0;
     // feu rouge / orange
     const node = W.nodes[e.b];
     const stopLine = e.len - W.RW - 4.6;
@@ -146,7 +157,17 @@ export class Traffic {
       if (st === 'R' || (st === 'Y' && stopLine - ai.t > ai.v * 1.2)) stopT = Math.min(stopT, stopLine);
     }
     // vitesse cible : distance d'arrêt
-    const gap = this.gapAhead(ai, obstacles);
+    let gap = this.gapAhead(ai, obstacles);
+    // contournement : obstacle immobile devant depuis un moment -> dépasser par la voie opposée si elle est libre
+    const blk = this._blk;
+    if (!ai.turn && !onTargetEdge && gap < 12 && (!blk || (blk.v || 0) < 0.5 || blk.state === 'broken')) ai.blockT = (ai.blockT || 0) + dt; else if (!ai.passing) ai.blockT = 0;
+    if (!ai.passing && ai.blockT > 2.5 && e.len - ai.t > 30 && this.laneFree(ai, e)) { ai.passing = true; ai.passFrom = ai.t; ai.blockT = 0; }
+    if (ai.passing) {
+      ai.off = Math.max(-W.LANE, ai.off - dt * 2.2);
+      gap = this.gapAhead(ai, obstacles);
+      if (ai.t - ai.passFrom > 22 || e.len - ai.t < 14) ai.passing = false;
+      ai.blink = (Math.floor(this.time * 3) % 2) * 3;
+    } else if (ai.off < W.LANE && !onTargetEdge) ai.off = Math.min(W.LANE, ai.off + dt * 1.6);
     let vmax = desired;
     if (stopT < Infinity && !ai.turn) vmax = Math.min(vmax, Math.sqrt(Math.max(0, 2 * 3.0 * (stopT - ai.t - 0.3))));
     vmax = Math.min(vmax, Math.sqrt(Math.max(0, 2 * 4.0 * (gap - 1.5))));

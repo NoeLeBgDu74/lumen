@@ -227,7 +227,7 @@ function doorPoint(car) { const t = car.tpl; return car.obj.localToWorld(new THR
 function toggleCar() {
   if (game.seq) return;
   const pl = game.player;
-  if (game.taxi && game.taxi.phase === 'waiting' && pl.pos.distanceTo(game.taxi.ai.pos) < 5) { const ai = game.taxi.ai; game.actions.run({ to: ai.car.obj.localToWorld(new THREE.Vector3(-(ai.tpl.size.x / 2 + 0.5), 0, -0.6)), face: ai.heading + Math.PI / 2, arms: 'reach', dur: 0.5 }).then(boardTaxi); return; }
+  if (game.taxi && game.taxi.phase === 'waiting' && pl.pos.distanceTo(game.taxi.ai.pos) < 6) { const ai = game.taxi.ai; game.actions.run({ to: ai.car.obj.localToWorld(new THREE.Vector3(-(ai.tpl.size.x / 2 + 0.5), 0, -0.6)), face: ai.heading + Math.PI / 2, arms: 'reach', dur: 0.5 }).then(boardTaxi); return; }
   if (game.taxi && game.taxi.phase === 'ride') return;
   // passager dans la voiture d'un autre joueur
   if (game.passenger) { const ch = pl.char; game.R.scene.attach(ch.obj); const o = game.passenger.obj; const p = o.localToWorld(new THREE.Vector3(-(game.passenger.car.tpl.size.x / 2 + 0.7), 0, 0)); pl.place(p.x, p.z, o.rotation.y); pl.mode = 'foot'; game.passenger = null; toast('Vous descendez'); return; }
@@ -463,7 +463,7 @@ function interactPrompt() {
   if (game.story && game.story.near(game.player.pos)) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Commencer la mission'; return; }
   if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant') + ' &nbsp; <kbd>G</kbd>Voler'; return; } }
   if (!game.veh && !game.seq) { const pd = game.peds.nearest(game.player.pos); if (pd) { el.hidden = false; el.innerHTML = '<kbd>G</kbd>Voler ce passant'; return; } }
-  if (game.taxi && game.taxi.phase === 'waiting' && game.player.pos.distanceTo(game.taxi.ai.pos) < 5) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans le taxi'; return; }
+  if (game.taxi && game.taxi.phase === 'waiting' && game.player.pos.distanceTo(game.taxi.ai.pos) < 6) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans le taxi'; return; }
   if (!game.veh && !game.seq && !game.passenger) { const rc = game.net.nearRemoteCar(game.player.pos); if (rc && !nearestCar(2.5)) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter avec ' + rc.R.name; return; } }
   if (!game.veh && !game.seq) { const pl = game.places.nearest(game.player.pos); if (pl) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>' + game.places.label(pl); return; } }
   if (game.veh && nearPump()) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Faire le plein'; return; }
@@ -531,49 +531,46 @@ game.callTaxi = async (dest, label) => {
   // le taxi part d'un point de la ville à 120-220 m
   const a = Math.random() * 6.28, d0 = 120 + Math.random() * 100;
   let sx = from.x + Math.cos(a) * d0, sz = from.z + Math.sin(a) * d0; const n = W.nodes[W.nearestNode(sx, sz)]; sx = n.x; sz = n.z;
-  const ai = game.traffic.newCar('canyon75taxi'); ai.state = 'taxi'; ai.pos.set(sx, 0, sz); ai.heading = Math.atan2(from.x - sx, from.z - sz); ai.v = 0;
+  const ai = game.traffic.newCar('canyon75taxi'); ai.pos.set(sx, 0, sz); ai.edge = W.edges[n.links[0]]; ai.t = W.RW + 2; ai.state = 'drive'; ai.v = 6; ai.taxi = true;
   const driver = new Character(game.charBases.rpm, { tint: { Outfit_Top: new THREE.Color(0xe8e4da).multiplyScalar(1.4), Outfit_Bottom: new THREE.Color(0x2b2b30).multiplyScalar(1.4) } });
   ai.car.obj.add(driver.obj); const st = seatOf(ai.car); driver.obj.position.set(st.x, st.y - driver.hipH + 0.05, st.z); driver.play('sit', 0);
   game.taxi = { ai, driver, dest: dest.clone(), label, price, phase: 'coming', t: 0 };
+  // le chauffeur conduit comme la circulation : voies, feux, distances, puis se gare près de vous
+  const ok = game.traffic.drive(ai, { door: { p: from.clone() }, name: 'votre position' }, () => { if (game.taxi && game.taxi.ai === ai) { game.taxi.phase = 'waiting'; game.life.notify('🚕 Votre taxi est garé tout près : approchez-vous et appuyez sur F'); game.checkpoint = ai.pos.clone(); } });
+  if (!ok) { game.traffic.remove(ai); game.taxi = null; return L.notify('Aucun taxi disponible', 'warn'); }
   const eta = Math.round(from.distanceTo(ai.pos) / 9 / 60 * 30 + 2);
   L.notify(`🚕 Taxi Lumen : un chauffeur arrive (≈ ${eta} min). Attendez sur le trottoir.`, 'ok');
-  game.checkpoint = null;
 };
 function taxiUpdate(dt) {
   const T = game.taxi; if (!T) return; const ai = T.ai, P = game.player; T.t += dt;
   T.driver.update(dt);
-  if (T.phase === 'coming') {
-    const pick = P.pos.clone(); const d = steerDrive(game, ai, pick, dt, { vmax: 13, direct: ai.pos.distanceTo(pick) < 30, stopDist: 4 });
-    poseCar(ai.car, { spin: ai.spin, steer: ai.steer, brake: ai.v < 2, head: game.sky.night > 0.45 ? 1 : 0, blink: d < 20 ? (Math.floor(game.time * 3) % 2) * 3 : 0 });
-    if (d < 6 && ai.v < 0.5) { T.phase = 'waiting'; game.life.notify('🚕 Votre taxi est là : appuyez sur F pour monter'); }
-    if (T.t > 240) { game.life.notify('🚕 Le taxi n’a pas pu vous rejoindre, course annulée'); endTaxi(); }
-  } else if (T.phase === 'waiting') {
-    poseCar(ai.car, { spin: ai.spin, steer: 0, brake: true, head: game.sky.night > 0.45 ? 1 : 0 });
-    if (P.pos.distanceTo(ai.pos) > 40) { game.life.notify('🚕 Le chauffeur est reparti sans vous'); endTaxi(); }
-  } else if (T.phase === 'ride') {
-    const d = steerDrive(game, ai, T.dest, dt, { vmax: 14, direct: ai.pos.distanceTo(T.dest) < 30, stopDist: 3 });
-    poseCar(ai.car, { spin: ai.spin, steer: ai.steer, brake: ai.v < 2, head: game.sky.night > 0.45 ? 1 : 0 });
+  if (T.phase === 'coming') { if (T.t > 300) { game.life.notify('🚕 Le taxi n’a pas pu vous rejoindre, course annulée'); endTaxi(); } }
+  else if (T.phase === 'waiting') { if (P.pos.distanceTo(ai.pos) > 60) { game.life.notify('🚕 Le chauffeur est reparti sans vous'); endTaxi(); } }
+  else if (T.phase === 'ride') {
     const ch = P.char; ch.play('sit', 0.3); ch.update(dt);
     const wp = ai.car.obj.getWorldPosition(new THREE.Vector3()); P.pos.copy(wp);
     const [mx, my] = game.input.consumeMouse(); P.camYaw -= mx * 0.0024; P.camPitch = THREE.MathUtils.clamp(P.camPitch + my * 0.002, -0.1, 0.9);
     P.updateCamera(dt, wp, 7, 1.3);
+    const d = ai.pos.distanceTo(T.dest);
     $('mission').hidden = false; $('mission').textContent = `🚕 En route vers ${T.label} · ${Math.round(d)} m · Espace : passer le trajet (+5 €)`;
-    if (game.input.pressed('Space')) { T.price += 5; game.life.skip(d / 9 / 3600 * 30 / 60 + 0.05, () => { ai.pos.copy(T.dest); }); }
-    if (d < 6 && ai.v < 0.6) {
-      game.life.money(-T.price, 'course de taxi'); game.R.scene.attach(ch.obj);
-      const side = ai.car.obj.localToWorld(new THREE.Vector3(-(ai.tpl.size.x / 2 + 0.7), 0, -0.4));
-      P.place(side.x, side.z, ai.heading); P.mode = 'foot'; game.life.notify(`🚕 Arrivé·e : ${T.label} (${T.price} €)`, 'ok'); endTaxi();
-    }
+    if (game.input.pressed('Space') && ai.target) { T.price += 5; game.life.skip(d / 9 / 3600 * 30 / 60 + 0.05, () => game.traffic.finishTrip(ai)); }
   }
+}
+function taxiArrived() {
+  const T = game.taxi; if (!T) return; const ai = T.ai, P = game.player, ch = P.char;
+  game.life.money(-T.price, 'course de taxi'); game.R.scene.attach(ch.obj);
+  const side = ai.car.obj.localToWorld(new THREE.Vector3(-(ai.tpl.size.x / 2 + 0.7), 0, -0.4));
+  P.place(side.x, side.z, ai.heading); P.mode = 'foot'; game.life.notify(`🚕 Arrivé·e : ${T.label} (${T.price} €)`, 'ok'); endTaxi();
 }
 function boardTaxi() {
   const T = game.taxi, P = game.player, ch = P.char;
   T.phase = 'ride'; P.mode = 'passenger-taxi';
   T.ai.car.obj.add(ch.obj); const st = seatOf(T.ai.car); ch.obj.position.set(-st.x, st.y - ch.hipH + 0.05, st.z - 0.9); ch.obj.rotation.set(0, 0, 0); ch.play('sit', 0.3);
-  T.ai._route = null; T.ai._rt = 0;
+  game.checkpoint = null;
+  game.traffic.drive(T.ai, { door: { p: T.dest.clone() }, name: T.label }, taxiArrived);
   game.life.notify('🚕 « Bonjour ! On y va. »');
 }
-function endTaxi() { const T = game.taxi; if (!T) return; setTimeout(() => game.traffic.remove(T.ai), 6000); T.ai.state = 'parked'; game.taxi = null; }
+function endTaxi() { const T = game.taxi; if (!T) return; const ai = T.ai; game.taxi = null; ai.taxi = false; setTimeout(() => game.traffic.remove(ai), 8000); }
 
 // ---------- vol à l'arraché ----------
 function robNearest() {
