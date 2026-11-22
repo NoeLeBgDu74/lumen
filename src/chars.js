@@ -106,8 +106,8 @@ function makeSitClip(work, rest) {
   };
   for (const s of ['Left', 'Right']) {
     const k = s === 'Left' ? 1 : -1;
-    aim(s + 'UpLeg', s + 'Leg', new THREE.Vector3(0.12 * k, -0.08, 1));
-    aim(s + 'Leg', s + 'Foot', new THREE.Vector3(0.02 * k, -1, 0.42));
+    aim(s + 'UpLeg', s + 'Leg', new THREE.Vector3(0.1 * k, 0.12, 1));
+    aim(s + 'Leg', s + 'Foot', new THREE.Vector3(0.02 * k, -1, 0.12));
     aim(s + 'Arm', s + 'ForeArm', new THREE.Vector3(0.28 * k, -0.55, 0.78));
     aim(s + 'ForeArm', s + 'Hand', new THREE.Vector3(-0.22 * k, 0.32, 0.92));
   }

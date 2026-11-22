@@ -248,8 +248,41 @@ function fxUpdate(dt) {
   }
 }
 
+// Mains sur le volant : IK à deux os (épaule → coude → main) vers deux points de la jante qui tournent avec le volant.
+const _v = new THREE.Vector3(), _q = new THREE.Quaternion();
+function handsOnWheel(ch, car, steer) {
+  const sw = car.steeringWheel; if (!sw) return;
+  ch.obj.updateMatrixWorld(true); car.obj.updateMatrixWorld(true);
+  const bones = ch._ik || (ch._ik = (() => { const B = {}; ch.model.traverse(o => { if (o.isBone) for (const n of ['LeftArm', 'LeftForeArm', 'LeftHand', 'RightArm', 'RightForeArm', 'RightHand']) if (o.name.replace(/^mixamorig:?/, '') === n) B[n] = o; }); return B; })());
+  const axis = new THREE.Vector3().fromArray(sw.userData.axis || [0, -0.35, 0.94]);
+  const side = new THREE.Vector3(1, 0, 0).sub(axis.clone().multiplyScalar(axis.x)).normalize();
+  for (const [sd, k] of [['Left', 1], ['Right', -1]]) {
+    const A = bones[sd + 'Arm'], F = bones[sd + 'ForeArm'], H = bones[sd + 'Hand']; if (!A || !F || !H) continue;
+    // point de la jante (rayon 0,17 m), tourné avec le volant
+    const local = side.clone().multiplyScalar(0.17 * k).applyAxisAngle(axis, steer * 6 + (k > 0 ? 0.25 : -0.25));
+    const T = car.obj.localToWorld(sw.position.clone().add(local));
+    const S = A.getWorldPosition(new THREE.Vector3()), E0 = F.getWorldPosition(new THREE.Vector3()), H0 = H.getWorldPosition(new THREE.Vector3());
+    const a = S.distanceTo(E0), b = E0.distanceTo(H0);
+    const st = T.clone().sub(S); let d = st.length(); d = Math.min(d, a + b - 0.005); st.normalize();
+    const cosA = THREE.MathUtils.clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+    const pole = new THREE.Vector3(0, -1, 0).add(car.obj.localToWorld(new THREE.Vector3(k * 2, 0, 0)).sub(car.obj.position).normalize().multiplyScalar(0.6));
+    const perp = pole.sub(st.clone().multiplyScalar(pole.dot(st))).normalize();
+    const E = S.clone().addScaledVector(st, a * cosA).addScaledVector(perp, a * sinA);
+    aimBone(A, E0, E); F.updateMatrixWorld(true);
+    aimBone(F, H.getWorldPosition(new THREE.Vector3()), T);
+  }
+}
+function aimBone(bone, childPos, target) {
+  const p = bone.getWorldPosition(new THREE.Vector3());
+  const cur = childPos.clone().sub(p).normalize(), want = target.clone().sub(p).normalize();
+  const wq = bone.getWorldQuaternion(new THREE.Quaternion());
+  const nw = new THREE.Quaternion().setFromUnitVectors(cur, want).multiply(wq);
+  const pq = bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+  bone.quaternion.copy(pq.multiply(nw)); bone.updateMatrixWorld(true);
+}
+
 // Siège et tête du conducteur déduits du volant de chaque modèle (sinon valeurs par défaut).
-function seatOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y - 0.5, sw.position.z - 0.62) : SEAT.clone(); }
+function seatOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y - 0.55, sw.position.z - 0.78) : SEAT.clone(); }
 function headOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y + 0.3, sw.position.z - 0.62) : HEAD.clone(); }
 function seatPose(car, ch) {
   const ls = seatOf(car); const p = car.obj.localToWorld(ls.clone());
@@ -338,7 +371,7 @@ function driveUpdate(dt) {
   v.update(dt, { throttle: Math.max(0, f), brake: Math.max(0, -f), steer: -s, handbrake: inp.down('Space') });
   const ai = game.vehAI; ai.pos.copy(v.pos); ai.heading = v.heading; ai.v = Math.abs(v.vz);
   // conducteur visible, assis, mains au volant
-  const ch = pl.char; ch.play('sit', 0.3); ch.update(dt); seatPose(v.car, ch);
+  const ch = pl.char; ch.play('sit', 0.3); ch.update(dt); seatPose(v.car, ch); handsOnWheel(ch, v.car, v.steer);
   ch.obj.visible = !game.interior;
   const [mx, my, wh] = inp.consumeMouse();
   if (game.interior) {
@@ -437,6 +470,19 @@ function gameplayUpdate(dt) {
         const axis = Math.abs(fw.x) > 0.7 ? 'x' : 'z';
         if (signalState(n, axis, game.traffic.time) === 'R' && game.time - (game._redT || 0) > 4) { game._redT = game.time; game.ranRed = true; if (game.police.units.length || Math.random() < 0.15) game.police.addWanted(1, 'feu rouge grillé'); }
       }
+    }
+    // conduite dangereuse : vitesse en ville, trottoirs, chocs → signalements par des témoins
+    const inCity = Math.abs(v.pos.x) < -W.OX && Math.abs(v.pos.z) < -W.OZ;
+    let risk = 0;
+    if (inCity && v.kmh > 75) risk += (v.kmh - 75) / 40 * dt;
+    if (v.pos.y > 0.08 && v.kmh > 15) risk += 0.6 * dt; // sur le trottoir
+    if (Math.abs(v.vx) > 3 && v.kmh > 30) risk += 0.4 * dt; // dérapage
+    if (v.lastHit > 4) { risk += 0.5; v.lastHit = 0; game._hitT = game.time; }
+    game.reckless = Math.max(0, (game.reckless || 0) * Math.pow(0.97, dt) + risk);
+    if (game.reckless > 1.2 && game.time - (game._recklessT || 0) > 25) {
+      game._recklessT = game.time; game.reckless = 0;
+      game.police.addWanted(1, game._hitT && game.time - game._hitT < 8 ? 'délit de fuite' : 'conduite dangereuse');
+      if (game.living) game.living.rumor(`un fou du volant en ${v.car.tpl.spec.name} a semé la panique`);
     }
     // piétons : ils s'écartent ; renversés si percutés
     if (v.kmh > 14) for (const p of game.pop.people) {

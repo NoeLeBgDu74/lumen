@@ -1,11 +1,11 @@
-// Menu administrateur caché : tapez « lumenadmin » en jeu (hors champ de texte) pour l'ouvrir / le fermer.
+// Menu administrateur caché : tapez « admin » en jeu (hors champ de texte) pour l'ouvrir / le fermer.
 // Argent, police, invincibilité, téléportation, heure, véhicules, armes, vol libre, habitants, joueurs en ligne.
 import * as THREE from 'three';
 import * as W from './world.js';
 import { CATALOG, PAINTS } from './cars.js';
 import { WEAPONS } from './combat.js';
 
-const SECRET = 'lumenadmin';
+const SECRET = 'admin';
 const $ = (id) => document.getElementById(id);
 
 export class Admin {
