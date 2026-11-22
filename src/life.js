@@ -139,7 +139,7 @@ export class Minimap {
 }
 export const ICONS = {
   supermarket: ['S', '#d63b30'], gas_station: ['⛽', '#1f8a4c'], dealership: ['🚗', '#2a62c9'], driving_school: ['A', '#e08a1e'], restaurant: ['R', '#b8462b'],
-  cafe: ['C', '#7a4f2b'], bakery: ['B', '#a0702a'], office: ['O', '#4b5a73'], garage: ['G', '#5f6b70'], warehouse: ['L', '#6b5b45'], park: ['P', '#3b8a3f'], sports: ['⚽', '#3b8a3f'], pharmacy: ['+', '#1e9e6a'], bank: ['€', '#20406b'],
+  cafe: ['C', '#7a4f2b'], gunshop: ['🔫', '#8a1c1c'], bakery: ['B', '#a0702a'], office: ['O', '#4b5a73'], garage: ['G', '#5f6b70'], warehouse: ['L', '#6b5b45'], park: ['P', '#3b8a3f'], sports: ['⚽', '#3b8a3f'], pharmacy: ['+', '#1e9e6a'], bank: ['€', '#20406b'],
 };
 export function districtAt(x, z) {
   const i = Math.floor((x - W.OX) / W.P), j = Math.floor((z - W.OZ) / W.P);

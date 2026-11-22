@@ -4,6 +4,7 @@ import * as W from './world.js';
 import { CATALOG, PAINTS } from './cars.js';
 import { fmt, gpsTo } from './life.js';
 import { JOBS as NPCJOBS } from './npc.js';
+import { WEAPONS } from './combat.js';
 
 // Emplois accessibles au joueur.
 export const PJOBS = {
@@ -93,6 +94,7 @@ export class Places {
     const L = this.g.life;
     L.panel(p.name, `<p>Un commerce du quartier.</p>`, [
       { label: 'Acheter un en-cas · 4 €', run: () => { if (L.money(-4, 'en-cas')) L.feed(18); } },
+      { label: 'Cambrioler (la nuit) ⚠', run: () => { this.burgle(p); return false; } },
       ...this.jobButtons(p),
       ...this.robButton(p),
     ]);
@@ -154,26 +156,64 @@ export class Places {
     L.panel(p.name, `<p>Garage et atelier.${v ? ' Dégâts : ' + Math.round(v.damage) + ' %' : ' Venez en voiture pour une réparation.'}</p>`, [...btn, ...this.jobButtons(p)]);
     void owned;
   }
-  _warehouse(p) { this.g.life.panel(p.name, '<p>Entrepôt de livraisons express.</p>', this.jobButtons(p)); }
+  _warehouse(p) { this.g.life.panel(p.name, '<p>Entrepôt de livraisons express.</p>', [...this.jobButtons(p), { label: 'Cambrioler l’entrepôt ⚠', run: () => { this.burgle(p); return false; } }]); }
   _factory(p) { this.g.life.panel(p.name, '<p>Usine — embauche sur place le matin.</p>', [{ label: 'Faire une journée d’intérim (6h-14h) · 11 €/h', run: () => this.temp(p, 11, 6, 14) }]); }
-  _office(p) { this.g.life.panel(p.name, '<p>Tour de bureaux.</p>', this.jobButtons(p)); }
+  _office(p) { this.g.life.panel(p.name, '<p>Tour de bureaux.</p>', [...this.jobButtons(p), { label: 'Cambrioler les bureaux ⚠', run: () => { this.burgle(p); return false; } }]); }
   _park(p) { const L = this.g.life; L.panel(p.name, '<p>Un coin de verdure.</p>', [{ label: 'Se détendre sur un banc (1 h)', run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 15); L.s.needs.energie = Math.min(100, L.s.needs.energie + 5); }) }, { label: 'Faire un footing (1 h)', run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 12); L.s.needs.energie -= 10; L.s.needs.hygiene -= 15; }) }]); }
   _sports(p) { this._park(p); }
   async temp(p, pay, a, b) { const L = this.g.life, h = this.g.hour; if (h > a + 1 || h < a - 1.5) { L.notify(`Présentez-vous vers ${a}h`, 'warn'); return; } await L.skip(b - h, () => { L.money((b - h) * pay, 'intérim'); L.s.needs.energie -= 40; }); }
+
+  // ---------- armurerie ----------
+  _gunshop(p) {
+    const L = this.g.life, s = L.s;
+    const btn = [];
+    for (const [k, w] of Object.entries(WEAPONS)) {
+      if (k === 'fists') continue;
+      if (!s.weapons[k]) btn.push({ label: `Acheter : ${w.name} · ${fmt(w.price)}`, keep: true, run: () => { if (L.money(-w.price, w.name)) { s.weapons[k] = true; L.notify(w.name + ' achetée — touche ' + w.key.slice(-1), 'ok'); this._gunshop(p); } } });
+      else if (w.ammoPrice) btn.push({ label: `Munitions ${w.name} (+${w.clip * 3}) · ${fmt(w.ammoPrice)}`, keep: true, run: () => { if (L.money(-w.ammoPrice, 'munitions')) { s.ammo[k] = (s.ammo[k] || 0) + w.clip * 3; this._gunshop(p); } } });
+    }
+    L.panel(p.name, `<p>Armes : touches 1 à 4 · clic gauche (souris verrouillée) pour tirer.<br>Munitions : pistolet ${s.ammo.pistol || 0} · PM ${s.ammo.smg || 0}</p>`, [...btn, ...this.robButton(p)]);
+  }
+
+  // ---------- cambriolage (immeubles, maisons, bureaux…) ----------
+  burgle(p) {
+    const g = this.g, L = g.life;
+    if (p.robbedDay === g.day) { L.notify('Déjà cambriolé aujourd’hui', 'warn'); return; }
+    const night = g.hour > 22 || g.hour < 5;
+    const occupied = g.pop.people.some(q => q.at === p && q.state === 'inside');
+    L.closePanel();
+    g.player.char.play('talk', 0.2); g.input.enabled = false;
+    L.notify('🔓 Crochetage de la serrure…');
+    setTimeout(async () => {
+      g.input.enabled = true;
+      if (Math.random() < (night ? 0.12 : 0.35) + (occupied ? 0.3 : 0)) { L.notify('🚨 Repéré·e par un voisin !', 'warn'); g.police.addWanted(occupied ? 3 : 2, 'cambriolage'); return; }
+      await L.skip(0.5, () => {
+        p.robbedDay = g.day;
+        const loot = Math.round((p.type === 'house' ? 300 + Math.random() * 1500 : p.type === 'office' || p.type === 'bank' ? 500 + Math.random() * 2500 : 120 + Math.random() * 700) * (night ? 1.2 : 0.8));
+        L.money(loot, 'cambriolage · ' + p.name);
+        if (Math.random() < 0.4) g.police.addWanted(1, 'cambriolage signalé');
+        for (const q of g.pop.people) if (q.home === p) g.pop.remember(q, 'a été cambriolé·e');
+      });
+    }, 2600);
+  }
 
   // ---------- logement ----------
   _apartments(p) {
     const L = this.g.life, s = L.s, mine = s.home && s.home.id === p.id;
     if (mine) return this.homeMenu();
     const rent = 520 + (p.floors || 5) * 25 + (p.district === 'D' ? 180 : 0);
+    this._burgleBtn = { label: 'Cambrioler ⚠', run: () => { this.burgle(p); return false; } };
     L.panel(p.name, `<p>Appartement 2 pièces disponible.<br>Loyer : <b>${fmt(rent)}/mois</b> (prélevé chaque semaine) · caution ${fmt(rent)}.</p>${s.home ? '<p><small>Vous quitterez votre logement actuel.</small></p>' : ''}`, [
+      this._burgleBtn,
       { label: 'Louer cet appartement', primary: true, run: () => { if (L.money(-rent, 'caution')) { s.home = { id: p.id, type: 'apartment', rent: rent / 4.3, name: p.name }; s.rentNext = this.g.day + 7; L.notify('Bienvenue chez vous !', 'ok'); L.save(); } } },
     ]);
   }
   _house(p) {
     const L = this.g.life, s = L.s, mine = s.home && s.home.id === p.id;
     if (mine) return this.homeMenu();
+    const bb = { label: 'Cambrioler ⚠', run: () => { this.burgle(p); return false; } };
     L.panel(p.name, `<p>Maison individuelle avec jardin et garage.<br>Prix : <b>${fmt(p.price)}</b> · ou location <b>${fmt(p.rent * 4.3)}/mois</b>.</p>`, [
+      bb,
       { label: 'Acheter (comptant)', disabled: s.money + s.bank < p.price, run: () => { let need = p.price; const fromCash = Math.min(s.money, need); s.money -= fromCash; need -= fromCash; s.bank -= need; s.home = { id: p.id, type: 'house', rent: 0, name: p.name, owned: true }; L.notify('Félicitations, vous êtes propriétaire !', 'ok'); L.save(); } },
       { label: 'Louer', run: () => { if (L.money(-p.rent * 4.3, 'caution')) { s.home = { id: p.id, type: 'house', rent: p.rent, name: p.name }; s.rentNext = this.g.day + 7; L.notify('Maison louée !', 'ok'); L.save(); } } },
     ]);

@@ -25,6 +25,7 @@ const SHOPS = [
   { name: 'Boucherie Dupont', type: 'shop', bg: '#7d1f1f', fg: '#f5e8d0', awning: ['#7d1f1f', '#f3ead9'] },
   { name: 'Mode & Co', type: 'shop', bg: '#e7ded0', fg: '#222' },
   { name: 'Électro Plus', type: 'shop', bg: '#0b4f8a', fg: '#fff' },
+  { name: 'Armurerie Lumen', type: 'gunshop', bg: '#1b1b1b', fg: '#e0b13a' },
   { name: 'Brasserie Le Lumen', type: 'restaurant', bg: '#2a1c12', fg: '#e8c27a', awning: ['#3a2416', '#e9d9b8'] },
 ];
 
@@ -229,7 +230,8 @@ function perimeter(ctx, rect, R, d, sp, i, j) {
     b.style = pick(R, styles);
     b.floors = Math.floor(fl[0] + R() * (fl[1] - fl[0] + 1));
     const shopChance = d === 'D' ? 0.8 : 0.45;
-    if (R() < shopChance) { b.shops = [b.face]; b.shopInfo = nextShop(R); }
+    if (sp === 'driving_school_block' && !ctx._dsDone && b.face === 's') { ctx._dsDone = true; b.shops = [b.face]; b.shopInfo = { name: 'Auto-École Lumière', type: 'driving_school', bg: '#e08a1e', fg: '#ffffff', awning: ['#e08a1e', '#ffffff'] }; }
+    else if (R() < shopChance) { b.shops = [b.face]; b.shopInfo = nextShop(R); }
     else b.entrance = b.face;
     b.blind = []; // murs mitoyens : pas d'ouvertures (cachés)
     const H = building(ctx, b);
@@ -244,10 +246,7 @@ function perimeter(ctx, rect, R, d, sp, i, j) {
   lotGround(ctx, court, 'grass', 0.16);
   for (let k = 0; k < 6; k++) ctx.trees.add(court.x0 + 4 + R() * (court.x1 - court.x0 - 8), court.z0 + 4 + R() * (court.z1 - court.z0 - 8), { scale: 0.9 + R() * 0.4, y: 0.15 });
   if (sp === 'home_block') W.places.filter(p => p.type === 'apartments' && Math.abs(p.bounds.x0 - rect.x0) < 60 && p.bounds.z0 >= rect.z0 - 1 && p.bounds.z1 <= rect.z1 + 1).forEach(p => p.homeBlock = true);
-  if (sp === 'driving_school_block') {
-    const p = W.places.filter(q => q.bounds && q.bounds.x0 >= rect.x0 - 1 && q.bounds.x1 <= rect.x1 + 1 && q.bounds.z0 >= rect.z0 - 1 && q.bounds.z1 <= rect.z1 + 1 && q.door && q.type !== 'apartments')[0];
-    if (p) { p.type = 'driving_school'; p.name = 'Auto-École Lumière'; }
-  }
+
   if (sp === 'restaurant_block') {
     const p = W.places.filter(q => q.bounds && q.bounds.x0 >= rect.x0 - 1 && q.bounds.x1 <= rect.x1 + 1 && q.bounds.z0 >= rect.z0 - 1 && q.bounds.z1 <= rect.z1 + 1 && q.door && q.type !== 'apartments');
     if (p[0]) p[0].type = 'restaurant';

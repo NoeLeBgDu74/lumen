@@ -16,6 +16,10 @@ import { Traffic } from './traffic.js';
 import { Vehicle } from './vehicle.js';
 import { Population, walkPath as walkPathTo } from './npc.js';
 import { groundHeight } from './physics.js';
+import { Peds } from './peds.js';
+import { Markers } from './markers.js';
+import { Combat } from './combat.js';
+import { Admin } from './admin.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
 import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
 import { Places, PJOBS } from './places.js';
@@ -62,7 +66,7 @@ async function start() {
   }
 
   setLoad(0.72, 'Habitants…');
-  await Promise.all([loadCharBase('rpm'), loadCharBase('michelle')]);
+  await Promise.all([loadCharBase('rpm'), loadCharBase('michelle'), loadCharBase('soldier')]);
   const input = game.input = new Input($('c'));
   const home = W.places.find(p => p.homeBlock && p.door) || W.places.find(p => p.type === 'apartments' && p.door);
   game.home = home;
@@ -78,11 +82,15 @@ async function start() {
   pop.maxVisible = R.q.npc;
   // population déterministe : mêmes habitants à chaque partie (mémoire des conversations cohérente)
   const mr = Math.random; let seed = 777; Math.random = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) % 1e9) / 1e9; };
-  try { pop.generate(170); } finally { Math.random = mr; }
+  try { pop.generate(220); } finally { Math.random = mr; }
   game.talk = new Talk(game);
   game.charBases = charCache;
   game.life = new Life(game); game.places = new Places(game); game.police = new Police(game); game.net = new Net(game);
   game.minimap = new Minimap(game);
+  game.peds = new Peds(game); game.peds.max = Math.max(6, R.q.npc - 4);
+  game.markers = new Markers(scene);
+  game.combat = new Combat(game); game.admin = new Admin(game);
+  { const ph = W.places.find(p => p.type === 'pharmacy'); window.__lwHospital = ph ? ph.door.p : null; }
   const off = W.places.find(p => p.type === 'office'); game.policeStation = off ? off.door.p : null;
   game.ownedAI = [];
   game.life.s.cars.forEach((c, i) => game.spawnOwned(i, false));
@@ -120,12 +128,15 @@ async function start() {
       if (input.pressed('KeyF')) toggleCar();
       if (input.pressed('KeyE')) handleE();
       if (input.pressed('KeyP')) togglePhone();
-      gameplayUpdate(dt); fxUpdate(dt);
+      gameplayUpdate(dt); fxUpdate(dt); game.combat.update(dt); if (!game.admin.fly) game.admin.update(dt); game.peds.update(dt); game.markers.update(camera, game.time);
+      if (input.pressed('KeyR')) robNearest();
       if (game.seq) seqUpdate(dt);
       else if (game.veh) driveUpdate(dt);
+      else if (game.admin && game.admin.fly) { game.admin.update(dt); player.update(dt, input); player.updateCamera(dt, player.pos); }
       else { player.update(dt, input); player.updateCamera(dt, player.pos); }
       const obst = [{ x: (game.veh ? game.veh.pos : player.pos).x, z: (game.veh ? game.veh.pos : player.pos).z, len: game.veh ? 3 : 1.2 }];
       for (const p of pop.people) if (p.char) obst.push({ x: p.pos.x, z: p.pos.z, len: 1 });
+      for (const o of game.peds.obstacles()) obst.push(o);
       pop.update(dt, camera.position);
       traffic.update(dt, { obstacles: obst, night: sky.night > 0.45 ? 1 : 0 });
       traffic.cull(camera.position, Math.min(R.q.drawDist, 260));
@@ -357,12 +368,27 @@ function driveUpdate(dt) {
 function interactPrompt() {
   const el = $('prompt');
   if ((game.talk && game.talk.open) || game.life.panelOpen) { el.hidden = true; return; }
-  if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant'); return; } }
+  if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant') + ' &nbsp; <kbd>R</kbd>Voler'; return; } }
+  if (!game.veh && !game.seq) { const pd = game.peds.nearest(game.player.pos); if (pd) { el.hidden = false; el.innerHTML = '<kbd>R</kbd>Voler ce passant'; return; } }
   if (!game.veh && !game.seq) { const pl = game.places.nearest(game.player.pos); if (pl) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>' + game.places.label(pl); return; } }
   if (game.veh && nearPump()) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Faire le plein'; return; }
   if (!game.veh) { const ai = nearestCar(); if (ai) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans ' + ai.tpl.spec.name; return; } }
   el.hidden = true;
 }
+// ---------- vol à l'arraché ----------
+function robNearest() {
+  if (game.veh || game.seq) return;
+  const pd = game.peds.nearest(game.player.pos, 2.4);
+  if (pd) { game.player.char.play('talk', 0.1); return game.peds.rob(pd); }
+  const n = game.pop.nearestTo(game.player.pos, 2.4);
+  if (n) {
+    const loot = 15 + Math.floor(Math.random() * 70); game.life.money(loot, 'vol à l’arraché');
+    game.pop.remember(n, `s'est fait voler ${loot} € par ${game.profile.first}`); n.playerOpinion = -1;
+    n.resume = n.state === 'talk' ? 'walk' : n.state; n.state = 'talk'; n.talkUntil = game.time + 3;
+    if (Math.random() < 0.6) game.police.addWanted(1, 'vol');
+  }
+}
+
 // ---------- gameplay ----------
 function nearPump() {
   const st = W.places.find(p => p.type === 'gas_station'); if (!st || !game.veh) return false;
@@ -414,8 +440,8 @@ function gameplayUpdate(dt) {
       const dd = p.pos.distanceTo(v.pos);
       if (dd < 7 && dd > 1.8) { const away = p.pos.clone().sub(v.pos).setY(0).normalize(); p.pos.addScaledVector(away, dt * 4); }
       else if (dd <= 1.8 && game.time - pedHitT > 1) {
-        pedHitT = game.time; p.hurt = true; p.resume = p.state === 'talk' ? 'walk' : p.state; p.state = 'talk'; p.talkUntil = game.time + 12;
-        setTimeout(() => { p.hurt = false; }, 12000);
+        pedHitT = game.time; p.hurt = true; p.knockT = game.time; p.knockDir = new THREE.Vector3(Math.sin(v.heading), 0, Math.cos(v.heading)); p.resume = p.state === 'talk' ? 'walk' : p.state; p.state = 'talk'; p.talkUntil = game.time + 7;
+        setTimeout(() => { p.hurt = false; }, 7000);
         game.pop.remember(p, `s'est fait renverser par ${game.profile.first}`); p.playerOpinion = -1; v.vz *= 0.7;
         game.police.addWanted(2, 'piéton renversé');
       }
@@ -460,9 +486,48 @@ function phoneGPS() {
   phList('GPS', items);
 }
 function phoneContacts() {
+  const n = game.net, items = [];
+  for (const id in n.remotes) { const r = n.remotes[id]; items.push({ t: '🟣 ' + r.name, s: 'Joueur en ligne · toucher pour appeler / écrire', run: () => phonePlayer(id) }); }
   const met = game.pop.people.filter(p => p.metPlayer).sort((a, b) => b.playerOpinion - a.playerOpinion);
-  phList('Contacts', met.length ? met.map(p => ({ t: p.first + ' ' + p.last, s: `${p.age} ans · ${gender(JLAB[p.job] || p.job, p.female)} · ${p.playerOpinion > 0.5 ? 'ami·e' : p.playerOpinion < 0 ? 'vous en veut' : 'connaissance'} · ${p.state === 'inside' ? (p.at && p.at.name ? p.at.name : 'chez soi') : 'dehors'}`, run: () => goGPS(p.pos.clone(), 'Rejoindre ' + p.first) })) : [{ t: 'Aucun contact', s: 'Parlez aux habitants (touche E) pour les rencontrer.' }]);
+  for (const p of met) items.push({ t: p.first + ' ' + p.last, s: `${p.age} ans · ${gender(JLAB[p.job] || p.job, p.female)} · ${p.playerOpinion > 0.5 ? 'ami·e' : p.playerOpinion < 0 ? 'vous en veut' : 'connaissance'}`, run: () => phoneNPC(p) });
+  phList('Contacts', items.length ? items : [{ t: 'Aucun contact', s: 'Parlez aux habitants (E) ; les joueurs connectés apparaissent ici.' }]);
 }
+function phoneThread(title, msgs, onSend, extra = '') {
+  $('phBody').innerHTML = `<div class="phh">${title}</div>${extra}<div id="thr" style="display:flex;flex-direction:column;gap:5px;max-height:300px;overflow:auto">${msgs.map(m => `<div class="ln ${m.me ? 'me' : 'npc'}">${m.text.replace(/</g, '&lt;')}</div>`).join('')}</div><input class="phin" id="pmIn" placeholder="Votre message"><button class="phbtn" id="pmGo">Envoyer</button>`;
+  const thr = $('thr'); thr.scrollTop = 1e6;
+  const go = () => { const v = $('pmIn').value; if (v.trim()) onSend(v); };
+  $('pmIn').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') go(); });
+  $('pmGo').onclick = go;
+}
+function phonePlayer(id) {
+  const n = game.net, r = n.remotes[id]; if (!r) return phoneContacts();
+  const msgs = n.pms.filter(m => m.from === id);
+  const extra = `<button class="phbtn" id="callBtn">${n.phoneCall && n.phoneCall.id === id ? '📴 Raccrocher' : '📞 Appeler'}</button>`;
+  phoneThread(r.name, msgs, (t) => { n.pm(id, t); phonePlayer(id); }, extra);
+  $('callBtn').onclick = () => { if (n.phoneCall) n.hangup(); else n.callPlayer(id); setTimeout(() => phonePlayer(id), 300); };
+  game.onPM = (from) => { if (from === id && !$('phone').hidden) phonePlayer(id); };
+}
+// SMS aux habitants : réponse de l'IA (ou hors ligne) selon leur personnalité et leur journée.
+function phoneNPC(p) {
+  p.sms = p.sms || [];
+  phoneThread(p.first + ' ' + p.last, p.sms, async (t) => {
+    p.sms.push({ me: true, text: t }); phoneNPC(p);
+    const T = game.talk; T.conv = T.conv && T.npc === p ? T.conv : []; const prevNpc = T.npc; T.npc = p;
+    T.conv.push({ role: 'user', text: '(par SMS) ' + t, day: game.day });
+    let reply = null; const key = getKey();
+    if (key) { try { reply = await T.llm(p, key); } catch (e) {} }
+    if (!reply) reply = gender(T.offline(p, t), p.female);
+    T.npc = prevNpc;
+    setTimeout(() => { p.sms.push({ me: false, text: reply }); game.life.notify('📩 ' + p.first + ' : ' + reply); if (!$('phone').hidden) phoneNPC(p); }, 1200 + Math.random() * 2500);
+  }, `<button class="phbtn" id="npcGps">📍 Le/la rejoindre</button>`);
+  $('npcGps').onclick = () => goGPS(p.pos.clone(), 'Rejoindre ' + p.first);
+}
+game.onIncomingCall = (name, call) => {
+  const ph = $('phone'); ph.hidden = false;
+  $('phBody').innerHTML = `<div class="phh" style="text-align:center;margin-top:60px">📞 ${name}</div><p style="text-align:center;color:#bbb">appel entrant…</p><button class="phbtn" id="acc">Décrocher</button><button class="phbtn" id="dec" style="background:#c0392b;color:#fff">Refuser</button>`;
+  $('acc').onclick = () => { game.net.answer(); phoneHome(); };
+  $('dec').onclick = () => { game.net.decline(); ph.hidden = true; };
+};
 function phoneBank() { const s = game.life.s; phList(`${fmt(s.money)} · compte ${fmt(s.bank)}`, s.log.slice(-14).reverse().map(l => ({ t: (l.v >= 0 ? '+' : '') + fmt(l.v), s: `Jour ${l.d} · ${l.why || ''}` }))); }
 function phoneCars() {
   const s = game.life.s;

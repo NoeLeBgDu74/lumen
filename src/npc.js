@@ -106,6 +106,8 @@ export class Population {
       const friend = this.bestFriend(p);
       plan.push({ at: Math.max(after + 0.8, 17.5) + jitter(), go: p.favFun, why: friend ? 'retrouver ' + friend.first : 'se détendre', stay: 1 + Math.random(), friend });
     }
+    if (!p.workplace || J.start >= 10 || Math.random() < 0.4) { const parks = W.places.filter(x => x.type === 'park' || x.type === 'sports'); plan.push({ at: 9.5 + Math.random() * 8, go: parks[Math.floor(Math.random() * parks.length)], why: 'se promener', stay: 0.6 + Math.random() }); }
+    if (Math.random() < 0.5) { const sh = W.places.filter(x => ['bakery', 'shop', 'pharmacy', 'cafe', 'restaurant'].includes(x.type)); plan.push({ at: 8 + Math.random() * 11, go: sh[Math.floor(Math.random() * sh.length)], why: 'faire un tour en ville', stay: 0.3 + Math.random() * 0.5 }); }
     plan.push({ at: Math.max(after + 1.5, 19.5 + Math.random() * 2), go: p.home, why: 'rentrer chez soi', stay: 12 });
     plan.sort((a, b) => a.at - b.at);
     p.plan = plan.filter(t => t.at > (initial ? hour - 6 : hour - 0.01));
@@ -156,7 +158,7 @@ export class Population {
     const from = p.pos.clone(), dest = task.go.door ? task.go.door.p : new THREE.Vector3(task.go.x, 0, task.go.z);
     const dist = from.distanceTo(dest);
     p.until = null;
-    if (p.car && p.car.state === 'parked' && dist > 260) {
+    if (p.car && p.car.state === 'parked' && dist > 420) {
       p.state = 'toCar';
       p.path = walkPath(from, p.car.pos.clone()); p.pi = 0;
       p.onArrive = () => this.boardCar(p, task);
@@ -238,7 +240,11 @@ export class Population {
     for (const p of cand) {
       if (!p.char) this.acquire(p);
       const c = p.char;
-      c.obj.position.copy(p.pos); c.obj.rotation.y = p.heading;
+      c.obj.position.copy(p.pos); c.obj.rotation.set(0, p.heading, 0);
+      if (p.knockT && this.game.time - p.knockT < 6.6) { // renversé : chute et relevé
+        const t = this.game.time - p.knockT; if (t < 0.5) p.pos.addScaledVector(p.knockDir, dt * 6 * (1 - t / 0.5));
+        c.obj.rotation.set(-Math.PI / 2 * Math.min(1, t / 0.35) * (t < 6 ? 1 : Math.max(0, 1 - (t - 6) / 0.6)), p.heading, 0, 'YXZ'); c.obj.position.y += t < 6 ? 0.12 : 0;
+      }
       const moving = p.state === 'walk' || p.state === 'toCar';
       c.play(p.state === 'talk' ? (c.has('talk') ? 'talk' : 'idle') : moving ? 'walk' : 'idle', 0.35, moving ? p.t.pace * 0.95 : 1);
       c.update(dt, Math.sqrt(p.pos.distanceToSquared(cam)));

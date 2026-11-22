@@ -122,6 +122,30 @@ function makeSitClip(work, rest) {
   void rest; return c;
 }
 
+// Pose « menotté » : bras ramenés dans le dos, tête légèrement baissée (construite depuis la T-pose).
+function makeCuffClip(work) {
+  const B = bonesOf(work);
+  // repartir de la T-pose : réinitialiser les os modifiés par la pose assise
+  for (const [, b] of B) if (b.userData.rest) b.quaternion.copy(b.userData.rest);
+  work.updateMatrixWorld(true);
+  const wq = (b) => b.getWorldQuaternion(new THREE.Quaternion()), wp = (b) => b.getWorldPosition(new THREE.Vector3());
+  const aim = (name, childName, dir) => {
+    const b = B.get(name), c = B.get(childName); if (!b || !c) return;
+    const cur = wp(c).sub(wp(b)).normalize();
+    const nw = new THREE.Quaternion().setFromUnitVectors(cur, dir.clone().normalize()).multiply(wq(b));
+    b.quaternion.copy(wq(b.parent).invert().multiply(nw)); work.updateMatrixWorld(true);
+  };
+  for (const sd of ['Left', 'Right']) {
+    const k = sd === 'Left' ? 1 : -1;
+    aim(sd + 'Arm', sd + 'ForeArm', new THREE.Vector3(0.25 * k, -0.85, -0.45));
+    aim(sd + 'ForeArm', sd + 'Hand', new THREE.Vector3(-0.85 * k, 0.15, -0.35));
+  }
+  aim('Neck', 'Head', new THREE.Vector3(0, 1, 0.3));
+  const tracks = [];
+  for (const [, b] of B) { const q = b.quaternion; tracks.push(new THREE.QuaternionKeyframeTrack(b.name.replace(/[\[\]\.:\/]/g, '') + '.quaternion', [0, 1], [q.x, q.y, q.z, q.w, q.x, q.y, q.z, q.w])); }
+  return new THREE.AnimationClip('cuffed', 1, tracks);
+}
+
 const bases = {};
 export async function loadCharBase(id) {
   if (bases[id]) return bases[id];
@@ -133,10 +157,12 @@ export async function loadCharBase(id) {
   const work = SkeletonUtils.clone(root);
   const restClip = def.rest ? g.animations.find(a => a.name === def.rest) : null;
   const tRest = restWorld(work, restClip);
+  work.traverse(o => { if (o.isBone) o.userData.rest = o.quaternion.clone(); });
   let clips = {};
   if (def.rpm) clips = await loadRpmClips();
   for (const [n, srcName] of CLIPS) { if (clips[n]) continue; const c = src.clips.find(a => a.name === srcName); if (c) clips[n] = bakeRetarget(src, work, tRest, c, n); }
   clips.sit = makeSitClip(work, tRest);
+  clips.cuffed = makeCuffClip(work);
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root);
   bases[id] = { root, scale: 1.72 / (box.max.y - box.min.y), minY: box.min.y, clips, def };

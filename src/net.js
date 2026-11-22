@@ -14,7 +14,7 @@ const $ = (id) => document.getElementById(id);
 export class Net {
   constructor(game) {
     this.g = game; this.peer = null; this.host = false; this.conn = null; this.conns = new Map(); this.remotes = {}; this.chat = [];
-    this.sendT = 0; this.connected = false; this.myId = null; this.stream = null; this.calls = new Map(); this.enabled = true;
+    this.sendT = 0; this.connected = false; this.pms = []; this.phoneCall = null; this.myId = null; this.stream = null; this.calls = new Map(); this.enabled = true;
     try { this.enabled = localStorage.getItem('lw.online') !== '0'; } catch (e) {}
   }
   get active() { return !!this.peer; }
@@ -107,6 +107,8 @@ export class Net {
       case 'clock': if (!this.host) { this.g.hour = m.hour; this.g.day = m.day; this.g.traffic.time = m.lights; } break;
       case 's': this.applyState(from, m); break;
       case 'chat': this.pushChat(m.name + ' : ' + m.text); break;
+      case 'pm': if (m.to === this.myId) { this.pms.push({ from: from, name: m.name, text: m.text, me: false }); this.g.life.notify('📩 ' + m.name + ' : ' + m.text, 'ok'); this.g.onPM && this.g.onPM(from); } break;
+      case 'hang': if (m.to === this.myId) this.hangup(true); break;
     }
   }
   addPlayer(h) {
@@ -170,7 +172,35 @@ export class Net {
     if (!this.stream || !this.peer) return;
     for (const id in this.remotes) if (!this.calls.has(id) && this.myId < id) { const call = this.peer.call(id, this.stream); this.hookCall(id, call); }
   }
-  onCall(call) { if (!this.stream) { call.answer(); } else call.answer(this.stream); this.hookCall(call.peer, call); }
+  onCall(call) {
+    if (call.metadata && call.metadata.direct) { // appel téléphonique d'un joueur
+      this.incoming = call; this.g.onIncomingCall && this.g.onIncomingCall(call.metadata.name, call);
+      return;
+    }
+    if (!this.stream) { call.answer(); } else call.answer(this.stream); this.hookCall(call.peer, call);
+  }
+  async mic() { if (this.micStream) return this.micStream; this.micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); return this.micStream; }
+  async callPlayer(id) {
+    try { const st = await this.mic(); const call = this.peer.call(id, st, { metadata: { direct: true, name: this.g.profile.first } }); this.attachPhone(call, id); this.g.life.notify('📞 Appel en cours…'); }
+    catch (e) { this.g.life.notify('Micro refusé : appel impossible', 'warn'); }
+  }
+  async answer() {
+    const call = this.incoming; if (!call) return; this.incoming = null;
+    try { const st = await this.mic(); call.answer(st); this.attachPhone(call, call.peer); } catch (e) { call.close(); this.g.life.notify('Micro refusé', 'warn'); }
+  }
+  decline() { if (this.incoming) { try { this.incoming.close(); } catch (e) {} this.incoming = null; } }
+  attachPhone(call, id) {
+    this.phoneCall = { call, id, t0: performance.now() };
+    call.on('stream', (s) => { const a = new Audio(); a.srcObject = s; a.autoplay = true; a.play().catch(() => {}); this.phoneCall && (this.phoneCall.audio = a); this.g.life.notify('📞 En communication', 'ok'); });
+    call.on('close', () => this.hangup(true));
+  }
+  hangup(remote) {
+    if (!this.phoneCall) return; const pc = this.phoneCall; this.phoneCall = null;
+    try { pc.call.close(); } catch (e) {} if (pc.audio) pc.audio.srcObject = null;
+    if (!remote) this.send({ t: 'hang', to: pc.id });
+    this.g.life.notify('📞 Appel terminé');
+  }
+  pm(id, text) { text = (text || '').trim(); if (!text) return; this.send({ t: 'pm', to: id, name: this.g.profile.first, text }); this.pms.push({ from: id, name: 'Moi', text, me: true }); }
   hookCall(id, call) {
     this.calls.set(id, call);
     call.on('stream', (s) => { const a = new Audio(); a.srcObject = s; a.autoplay = true; a.play().catch(() => {}); this.calls.get(id).audio = a; });

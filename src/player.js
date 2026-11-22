@@ -17,13 +17,15 @@ export class Player {
     this.camYaw -= mx * 0.0024; this.camPitch = THREE.MathUtils.clamp(this.camPitch + my * 0.002, -0.35, 1.1);
     this.camDist = THREE.MathUtils.clamp(this.camDist + wh * 0.5, 2.2, 9);
     if (this.mode !== 'foot') return;
+    const adm = window.game && window.game.admin;
+    if (adm && adm.fly) { this.char.obj.position.copy(this.pos); this.char.play('idle'); this.char.update(dt); return; }
     const { f, s } = input.move();
     const run = input.down('ShiftLeft', 'ShiftRight');
     const want = new THREE.Vector3();
     if (f || s) {
       const fw = new THREE.Vector3(-Math.sin(this.camYaw), 0, -Math.cos(this.camYaw));
       const rt = new THREE.Vector3(-fw.z, 0, fw.x);
-      want.addScaledVector(fw, f).addScaledVector(rt, s).normalize().multiplyScalar(run ? 5.6 : 1.6);
+      want.addScaledVector(fw, f).addScaledVector(rt, s).normalize().multiplyScalar((run ? 5.6 : 1.6) * ((adm && adm.speed) || 1));
     }
     const acc = this.onGround ? 10 : 2;
     this.vel.x += (want.x - this.vel.x) * Math.min(1, acc * dt);

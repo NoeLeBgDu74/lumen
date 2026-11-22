@@ -115,6 +115,17 @@ html, body { margin:0; height:100%; overflow:hidden; background:#0b0c0f; color:v
 .nametag { position:fixed; transform:translate(-50%,-100%); padding:3px 8px; border-radius:8px; background:rgba(120,60,200,.75); font:600 12px Inter; color:#fff; pointer-events:none; z-index:9; }
 @media (max-width:700px) { #mapbox { width:130px; height:130px; } #minimap { width:130px; height:130px; } #stars { right:20px; top:150px; } }
 
-#lobby { position:absolute; bottom:30px; left:50%; transform:translateX(-50%); padding:8px 14px; border-radius:12px; background:var(--glass); border:1px solid rgba(199,125,255,.45); backdrop-filter:blur(10px); font-size:12.5px; pointer-events:auto; white-space:nowrap; }
+#lobby { position:absolute; top:18px; left:50%; transform:translateX(-50%); padding:8px 14px; border-radius:12px; background:var(--glass); border:1px solid rgba(199,125,255,.45); backdrop-filter:blur(10px); font-size:12.5px; pointer-events:auto; white-space:nowrap; }
 #lobby button { margin-left:6px; padding:4px 9px; border-radius:8px; border:1px solid var(--line); background:rgba(255,255,255,.08); color:var(--fg); font:600 11.5px Inter; cursor:pointer; }
-#mission { top:62px; }
+#mission { top:64px; }
+@media (max-width:1100px) { #lobby { top:auto; bottom:30px; } }
+
+#crosshair { position:absolute; left:50%; top:50%; width:22px; height:22px; margin:-11px 0 0 -11px; border:2px solid rgba(255,255,255,.85); border-radius:50%; box-shadow:0 0 0 1px rgba(0,0,0,.4); }
+#crosshair::after { content:''; position:absolute; left:50%; top:50%; width:3px; height:3px; margin:-1.5px; background:#fff; border-radius:50%; }
+#weapon { position:absolute; right:26px; bottom:150px; font-size:12px; color:var(--dim); text-align:right; text-shadow:0 1px 3px #000; }
+#admin { position:fixed; left:20px; top:220px; z-index:60; }
+.adm { width:340px; max-height:70vh; display:flex; flex-direction:column; background:rgba(10,12,16,.95); border:1px solid #c0392b; border-radius:14px; padding:12px; font:500 12.5px Inter; }
+.admh { display:flex; align-items:center; gap:8px; margin-bottom:8px; } .admh b { color:#ff6b5b; } .admh span { flex:1; font-size:10.5px; color:var(--dim); } .admh button { background:none; border:0; color:#fff; cursor:pointer; }
+.admt { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px; } .admt button { padding:5px 8px; border-radius:8px; border:1px solid var(--line); background:rgba(255,255,255,.05); color:#fff; font:600 11px Inter; cursor:pointer; text-transform:capitalize; }
+.admt button.on, .admb button.on { background:#c0392b; border-color:#c0392b; }
+.admb { overflow:auto; display:flex; flex-direction:column; gap:4px; } .admb button { text-align:left; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:rgba(255,255,255,.05); color:#fff; font:500 12px Inter; cursor:pointer; }

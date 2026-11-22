@@ -1,6 +1,8 @@
 // Police et niveau de recherche (1 à 5 étoiles) : patrouilles qui prennent en chasse, sirènes, arrestation, fuite.
 import * as THREE from 'three';
 import { poseCar } from './cars.js';
+import { Character } from './chars.js';
+import { groundHeight } from './physics.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -38,6 +40,7 @@ export class Police {
 
   update(dt) {
     const g = this.g; if (!g.traffic) return;
+    this.updateArrest(dt);
     const target = g.veh ? g.veh.pos : g.player.pos;
     // nombre d'unités selon le niveau
     const want = this.wanted ? Math.min(6, this.wanted + 1) : 0;
@@ -78,11 +81,57 @@ export class Police {
       $('stars').classList.toggle('blink', !seen);
       if (this.lostT > need) { this.wanted--; this.lostT = 0; this.renderStars(); if (!this.wanted) g.life.notify('Vous avez semé la police', 'ok'); }
       const spd = g.veh ? g.veh.kmh : g.player.speed * 3.6;
-      if (close && spd < 6) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt);
-      if (this.bustT > 2.5) this.bust();
+      if (close && spd < 8 && !this.arrest) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt);
+      if (this.bustT > 1.2 && !this.arrest) this.startArrest();
+      // tirs de la police à partir de 3 étoiles
+      if (this.wanted >= 3 && g.combat && !this.arrest) {
+        const nearU = this.units.find(u => u.ai.pos.distanceTo(target) < 30);
+        if (nearU) { const a = nearU.ai.pos, b = target; if (g.world.segmentFree(a.x, 1.2, a.z, b.x, 1.2, b.z) > 0.97) g.combat.damage(dt * (g.veh ? 2 : 5), 'tirs de la police'); }
+      }
     }
     this.siren(this.units.length && this.wanted ? Math.min(1, 60 / Math.max(10, Math.min(...this.units.map(u => u.ai.pos.distanceTo(target))))) : 0);
   }
+  // Interpellation : un agent sort de la voiture, court vers le joueur et le menotte.
+  startArrest() {
+    const g = this.g; this.bustT = 0;
+    const target = g.veh ? g.veh.pos : g.player.pos;
+    const u = this.units.slice().sort((a, b) => a.ai.pos.distanceTo(target) - b.ai.pos.distanceTo(target))[0]; if (!u) return;
+    const ai = u.ai; ai.v = 0;
+    const base = g.charBases.soldier || g.charBases.rpm;
+    const off = new Character(base, { height: 1.82 });
+    const door = ai.car.obj.localToWorld(new THREE.Vector3(ai.tpl.size.x / 2 + 0.5, 0, 0.1));
+    off.obj.position.copy(door); off.obj.rotation.y = ai.heading + Math.PI / 2; g.R.scene.add(off.obj);
+    this.arrest = { u, off, phase: 'run', t: 0 };
+    g.life.notify('🚓 « Police ! Ne bougez plus ! »', 'warn');
+  }
+  updateArrest(dt) {
+    const g = this.g, A = this.arrest; if (!A) return;
+    A.t += dt; const off = A.off;
+    const P = g.player;
+    if (A.phase === 'run') {
+      const tgt = g.veh ? g.veh.car.obj.localToWorld(new THREE.Vector3(g.veh.car.tpl.size.x / 2 + 0.7, 0, 0.1)) : P.pos.clone().add(new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(-0.8));
+      const to = tgt.clone().sub(off.obj.position); to.y = 0; const d = to.length();
+      if (d > 0.25) { off.obj.position.addScaledVector(to.normalize(), Math.min(d, 4.8 * dt)); off.obj.rotation.y = Math.atan2(to.x, to.z); off.play(d > 2 ? 'run' : 'walk', 0.2); }
+      off.obj.position.y = groundHeight(off.obj.position.x, off.obj.position.z);
+      const fleeing = g.veh ? g.veh.kmh > 12 : P.speed > 3.5 && P.pos.distanceTo(off.obj.position) > 3;
+      if (fleeing && A.t > 1.5) { this.endArrest(); return; }
+      if (d <= 0.25 || A.t > 9) {
+        if (g.veh) g.forceExit();
+        A.phase = 'cuff'; A.t = 0; g.input.enabled = false; P.mode = 'cuffed';
+        P.char.play('cuffed', 0.35); off.play('talk', 0.3);
+        g.life.notify('🔒 Vous êtes menotté·e', 'warn');
+      }
+    } else if (A.phase === 'cuff') {
+      P.char.play('cuffed', 0.3); P.char.update(dt);
+      const behind = P.pos.clone().add(new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(-0.7));
+      off.obj.position.lerp(behind, Math.min(1, dt * 4)); off.obj.rotation.y = P.yaw;
+      P.updateCamera(dt, P.pos, 3.2, 1.5);
+      if (A.t > 3.2) { this.endArrest(); g.input.enabled = true; P.mode = 'foot'; this.bust(); return; }
+    }
+    off.update(dt);
+  }
+  endArrest() { const A = this.arrest; if (!A) return; this.g.R.scene.remove(A.off.obj); this.arrest = null; }
+
   bust() {
     const g = this.g, L = g.life; this.bustT = 0;
     const fine = Math.round(L.s.money * 0.5 + this.wanted * 250);
