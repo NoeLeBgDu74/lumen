@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { poseCar } from './cars.js';
 import { Character } from './chars.js';
 import { groundHeight } from './physics.js';
+import * as W from './world.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -110,22 +111,11 @@ export class Police {
       if (!this.wanted) { // retour à la circulation puis disparition
         u.leave = (u.leave || 0) + dt; if (u.leave > 8 || dist > 200) { this.removeUnit(u); continue; }
       }
-      const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-      // vitesse et agressivité selon le niveau : à 1★ on suit, à 3★ on percute pour immobiliser
-      const keep = this.wanted >= 3 ? 0 : this.wanted === 2 ? 6 : 10;
-      const vmax = !this.wanted ? 8 : u.mode === 'chase' ? (dist < 12 + keep ? Math.max(0, (dist - keep) * 0.8) : 13 + this.wanted * 3.5) : 12;
-      ai.heading += THREE.MathUtils.clamp(dh, -1.6 * dt * (1 + ai.v / 20), 1.6 * dt * (1 + ai.v / 20));
-      ai.v += THREE.MathUtils.clamp(vmax - ai.v, -9 * dt, 6 * dt);
-      if (Math.abs(dh) > 1.2) ai.v *= Math.pow(0.4, dt);
-      const fw = new THREE.Vector3(Math.sin(ai.heading), 0, Math.cos(ai.heading));
-      const nx = ai.pos.x + fw.x * ai.v * dt, nz = ai.pos.z + fw.z * ai.v * dt;
-      const r = g.world.resolve(nx, nz, ai.tpl.size.x / 2 + 0.3);
-      if (r.hit) { u.stuck += dt; ai.heading += 1.4 * dt; ai.v *= 0.6; } else u.stuck = Math.max(0, u.stuck - dt);
-      if (u.stuck > 3) { // dégagement : recule
-        ai.pos.addScaledVector(fw, -3); u.stuck = 0;
-      } else ai.pos.set(r.x, 0, r.z);
-      ai.spin += ai.v * dt / 0.33;
-      ai.car.obj.position.copy(ai.pos); ai.car.obj.rotation.set(0, ai.heading, 0);
+      // conduite réaliste : par les rues quand on ne vous voit pas, poursuite directe à vue et de près
+      const keep = this.wanted >= 3 ? 0 : this.wanted === 2 ? 5 : 9;
+      const direct = u.mode === 'chase' && sees && dist < 45;
+      steerDrive(g, ai, dest, dt, { vmax: !this.wanted ? 9 : u.mode === 'chase' ? 13 + this.wanted * 3.5 : 12, direct, stopDist: u.mode === 'chase' ? keep : 0 });
+      const dh = ai.steer;
       poseCar(ai.car, { spin: ai.spin, steer: THREE.MathUtils.clamp(dh, -0.5, 0.5), brake: ai.v < 3, head: 1 });
       const ph = Math.floor(g.time * 6) % 2;
       u.red.emissiveIntensity = this.wanted ? (ph ? 12 : 0) : 0; u.blue.emissiveIntensity = this.wanted ? (ph ? 0 : 12) : 0;
@@ -158,16 +148,11 @@ export class Police {
   }
   // Poursuite d'un véhicule volé par un PNJ
   chaseCar(u, dt) {
-    const g = this.g, ai = u.ai, tg = u.target.pos; if (!u.target.car && u.target.pos && ai.pos.distanceTo(tg) < 3) { ai.v = 0; poseCar(ai.car, { spin: ai.spin, brake: true, head: 1 }); const ph0 = Math.floor(g.time * 6) % 2; u.red.emissiveIntensity = ph0 ? 12 : 0; u.blue.emissiveIntensity = ph0 ? 0 : 12; return; }
-    const to = tg.clone().sub(ai.pos); to.y = 0; const dist = to.length();
-    const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-    ai.heading += THREE.MathUtils.clamp(dh, -1.8 * dt * (1 + ai.v / 20), 1.8 * dt * (1 + ai.v / 20));
-    const vmax = dist < 10 ? Math.max(1, dist * 0.6) : 24; ai.v += THREE.MathUtils.clamp(vmax - ai.v, -9 * dt, 6 * dt);
-    const fw = new THREE.Vector3(Math.sin(ai.heading), 0, Math.cos(ai.heading));
-    const r = g.world.resolve(ai.pos.x + fw.x * ai.v * dt, ai.pos.z + fw.z * ai.v * dt, ai.tpl.size.x / 2 + 0.3);
-    if (r.hit) { ai.heading += 1.4 * dt; ai.v *= 0.6; } ai.pos.set(r.x, 0, r.z);
-    ai.spin += ai.v * dt / 0.33; ai.car.obj.position.copy(ai.pos); ai.car.obj.rotation.set(0, ai.heading, 0);
-    poseCar(ai.car, { spin: ai.spin, steer: THREE.MathUtils.clamp(dh, -0.5, 0.5), brake: ai.v < 3, head: 1 });
+    const g = this.g, ai = u.ai, tg = u.target.pos;
+    const fixed = !u.target.car && !u.target.tpl; // point fixe (accident) : s'arrêter à côté
+    const near = ai.pos.distanceTo(tg) < 40 && g.world.segmentFree(ai.pos.x, 1.4, ai.pos.z, tg.x, 1.4, tg.z) > 0.97;
+    steerDrive(g, ai, tg, dt, { vmax: fixed ? 14 : 22, direct: near, stopDist: fixed ? 2 : 0 });
+    poseCar(ai.car, { spin: ai.spin, steer: ai.steer, brake: ai.v < 3, head: 1 });
     const ph = Math.floor(g.time * 6) % 2; u.red.emissiveIntensity = ph ? 12 : 0; u.blue.emissiveIntensity = ph ? 0 : 12;
   }
   // Interpellation : un agent sort de la voiture, court vers le joueur et le menotte.
@@ -190,7 +175,12 @@ export class Police {
     if (A.phase === 'run') {
       const tgt = g.veh ? g.veh.car.obj.localToWorld(new THREE.Vector3(g.veh.car.tpl.size.x / 2 + 0.7, 0, 0.1)) : P.pos.clone().add(new THREE.Vector3(Math.sin(P.yaw), 0, Math.cos(P.yaw)).multiplyScalar(-0.8));
       const to = tgt.clone().sub(off.obj.position); to.y = 0; const d = to.length();
-      if (d > 0.25) { off.obj.position.addScaledVector(to.normalize(), Math.min(d, 4.8 * dt)); off.obj.rotation.y = Math.atan2(to.x, to.z); off.play(d > 2 ? 'run' : 'walk', 0.2); }
+      if (d > 0.25) {
+        A.v = Math.min(d > 3 ? 4.6 : 1.6, (A.v || 0) + dt * 5);
+        off.obj.position.addScaledVector(to.normalize(), Math.min(d, A.v * dt));
+        const want = Math.atan2(to.x, to.z); let dy = Math.atan2(Math.sin(want - off.obj.rotation.y), Math.cos(want - off.obj.rotation.y)); off.obj.rotation.y += dy * Math.min(1, dt * 7);
+        off.play(A.v > 2.5 ? 'run' : 'walk', 0.3, A.v > 2.5 ? A.v / 5.6 : A.v / 1.6);
+      } else A.v = 0;
       off.obj.position.y = groundHeight(off.obj.position.x, off.obj.position.z);
       const fleeing = g.veh ? g.veh.kmh > 12 : P.speed > 3.5 && P.pos.distanceTo(off.obj.position) > 3;
       if (fleeing && A.t > 1.5) { this.endArrest(); return; }
@@ -238,4 +228,40 @@ export class Police {
     o.frequency.setTargetAtTime(Math.floor(this.g.time * 1.4) % 2 ? 640 : 860, ctx.currentTime, 0.02);
     gn.gain.setTargetAtTime(level * 0.06, ctx.currentTime, 0.2);
   }
+}
+
+
+// Conduite réaliste d'un véhicule d'intervention : itinéraire par les rues (A*), rayon de braquage selon la vitesse,
+// accélération/freinage progressifs, ralentissement avant les virages, poursuite directe seulement à vue et de près.
+export function steerDrive(g, ai, dest, dt, { vmax = 20, direct = false, stopDist = 0 } = {}) {
+  let wp = dest;
+  if (!direct) {
+    ai._rt = (ai._rt || 0) - dt;
+    if (ai._rt <= 0 || !ai._route) {
+      ai._rt = 2.5; const a = W.nearestNode(ai.pos.x, ai.pos.z), b = W.nearestNode(dest.x, dest.z);
+      ai._route = (W.route(a, b) || []).map(n => new THREE.Vector3(W.nodes[n].x, 0, W.nodes[n].z));
+    }
+    while (ai._route.length && ai.pos.distanceTo(ai._route[0]) < 10) ai._route.shift();
+    if (ai._route.length) wp = ai._route[0];
+  }
+  const to = wp.clone().sub(ai.pos); to.y = 0; const d = to.length(), dFinal = ai.pos.distanceTo(dest);
+  const want = Math.atan2(to.x, to.z); let dh = Math.atan2(Math.sin(want - ai.heading), Math.cos(want - ai.heading));
+  // vitesse cible : virage serré → on ralentit ; arrivée → on freine
+  let vt = vmax * (1 - Math.min(1, Math.abs(dh) / 1.3) * 0.75);
+  if (stopDist >= 0 && direct) vt = Math.min(vt, Math.max(0, (dFinal - stopDist) * 0.9));
+  else vt = Math.min(vt, Math.max(4, (dFinal - stopDist) * 0.8));
+  if (Math.abs(dh) > 2.2 && ai.v < 3) vt = 3; // demi-tour lent
+  ai.v += THREE.MathUtils.clamp(vt - ai.v, -9 * dt, 5 * dt);
+  // braquage limité par le rayon de virage (≈ 6,5 m)
+  const rate = Math.max(0.35, ai.v / 6.5);
+  const turn = THREE.MathUtils.clamp(dh, -rate * dt, rate * dt);
+  ai.heading += turn; ai.steer = THREE.MathUtils.clamp(dh * 1.2, -0.55, 0.55);
+  const fw = new THREE.Vector3(Math.sin(ai.heading), 0, Math.cos(ai.heading));
+  const r = g.world.resolve(ai.pos.x + fw.x * ai.v * dt, ai.pos.z + fw.z * ai.v * dt, ai.tpl.size.x / 2 + 0.25);
+  if (r.hit) { ai.v *= 0.5; ai._stuck = (ai._stuck || 0) + dt; } else ai._stuck = Math.max(0, (ai._stuck || 0) - dt);
+  if (ai._stuck > 2.5) { ai.pos.addScaledVector(fw, -2.5); ai.heading += 0.8; ai._stuck = 0; ai._rt = 0; } else ai.pos.set(r.x, 0, r.z);
+  ai.spin += ai.v * dt / (ai.tpl.wheelR || 0.33);
+  const o = ai.car.obj; o.position.copy(ai.pos); o.rotation.set(0, ai.heading, 0);
+  o.rotateZ(THREE.MathUtils.clamp(-turn / Math.max(dt, 1e-3) * ai.v * 0.004, -0.05, 0.05)); // roulis
+  return dFinal;
 }

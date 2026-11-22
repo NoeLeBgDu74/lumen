@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import * as W from './world.js';
 import { Character } from './chars.js';
 import { districtAt } from './life.js';
+import { steerDrive } from './police.js';
+import { poseCar } from './cars.js';
 
 export class Living {
   constructor(game) {
@@ -210,15 +212,10 @@ export class Living {
         T.age = (T.age || 0) + dt;
         // repli : s'il ne trouve pas son chemin, le camion se gare devant le feu (de préférence hors de la vue du joueur)
         if (T.age > 22 && ai.pos.distanceTo(dest) > 3 && (ai.pos.distanceTo(g.player.pos) > 50 || T.age > 40)) { ai.pos.copy(dest); ai.heading = Math.atan2(-f.pl.door.nrm.x, -f.pl.door.nrm.z) + Math.PI / 2; ai.v = 0; }
-        const to = dest.clone().sub(ai.pos); to.y = 0; const dist = to.length();
-        if (dist > 2) {
-          const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-          ai.heading += THREE.MathUtils.clamp(dh, -1.4 * dt, 1.4 * dt); ai.v += THREE.MathUtils.clamp((dist < 20 ? dist * 0.5 : 15) - ai.v, -8 * dt, 4 * dt);
-          const fw = new THREE.Vector3(Math.sin(ai.heading), 0, Math.cos(ai.heading));
-          const r = g.world.resolve(ai.pos.x + fw.x * ai.v * dt, ai.pos.z + fw.z * ai.v * dt, ai.tpl.size.x / 2 + 0.3);
-          if (r.hit) { ai.heading += 1.3 * dt; ai.v *= 0.6; T.stuck += dt; if (T.stuck > 4) { ai.pos.addScaledVector(fw, -3); T.stuck = 0; } } else ai.pos.set(r.x, 0, r.z);
+        const dist = ai.pos.distanceTo(dest);
+        if (dist > 2.5) { steerDrive(g, ai, dest, dt, { vmax: 15, direct: dist < 35, stopDist: 1 }); poseCar(ai.car, { spin: ai.spin, steer: ai.steer, brake: ai.v < 3, head: 1 });
         } else if (!f.crew.length) this.deployCrew(f);
-        ai.spin += ai.v * dt / 0.4; g.traffic.sync(ai, { night: 1 });
+
         const ph = Math.floor(g.time * 5) % 2; T.l1.emissiveIntensity = ph ? 12 : 0; T.l2.emissiveIntensity = ph ? 0 : 12;
       }
       // pompiers : lances à eau
