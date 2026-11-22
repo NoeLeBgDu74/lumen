@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import * as W from './world.js';
 import { signalState } from './city.js';
-import { CATALOG, PAINTS, loadCarTemplate, makeCar, poseCar } from './cars.js';
+import { CATALOG, PAINTS, loadCarTemplate, makeCar, poseCar, carLOD } from './cars.js';
 
 const tmp = new THREE.Vector3();
 let uid = 0;
@@ -83,7 +83,7 @@ export class Traffic {
     this.time += dt;
     const obstacles = ctx.obstacles || [];
     for (const ai of this.cars) {
-      if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police') continue;
+      if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police' || ai.state === 'jacked') continue;
       this.step(ai, dt, obstacles, ctx);
     }
   }
@@ -210,7 +210,11 @@ export class Traffic {
   }
   // Masque les voitures lointaines (simulation conservée).
   cull(cam, dist) {
-    for (const ai of this.cars) ai.car.obj.visible = ai.state === 'player' || ai.state === 'police' || ai.pos.distanceTo(cam) < dist;
+    for (const ai of this.cars) {
+      const d = ai.pos.distanceTo(cam);
+      ai.car.obj.visible = ai.state === 'player' || ai.state === 'police' || d < dist;
+      if (ai.car.obj.visible) carLOD(ai.car, ai.state === 'player' ? 0 : d);
+    }
   }
 }
 

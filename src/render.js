@@ -10,8 +10,9 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { setAnisotropy } from './assets.js';
 
 export const PRESETS = {
-  low:    { pixelRatio: 0.75, shadow: 1024, shadowRange: 70,  ao: false, bloom: false, smaa: false, aniso: 4,  drawDist: 260, npc: 18, traffic: 10 },
-  medium: { pixelRatio: 1.0,  shadow: 2048, shadowRange: 90,  ao: false, bloom: true,  smaa: true,  aniso: 8,  drawDist: 380, npc: 30, traffic: 16 },
+  potato: { pixelRatio: 0.5, shadow: 512, shadowRange: 40, shadows: false, post: false, ao: false, bloom: false, smaa: false, aniso: 1, drawDist: 170, npc: 6, traffic: 4, envEvery: 20 },
+  low:    { pixelRatio: 0.7, shadow: 1024, shadowRange: 60,  ao: false, bloom: false, smaa: false, aniso: 4,  drawDist: 240, npc: 14, traffic: 8 },
+  medium: { pixelRatio: 0.9,  shadow: 2048, shadowRange: 80,  ao: false, bloom: true,  smaa: false, aniso: 8,  drawDist: 340, npc: 24, traffic: 14 },
   high:   { pixelRatio: 1.0,  shadow: 4096, shadowRange: 110, ao: true,  bloom: true,  smaa: true,  aniso: 16, drawDist: 520, npc: 44, traffic: 22 },
   ultra:  { pixelRatio: 1.5,  shadow: 4096, shadowRange: 140, ao: true,  bloom: true,  smaa: true,  aniso: 16, drawDist: 700, npc: 60, traffic: 28 },
 };
@@ -53,6 +54,10 @@ export class Renderer {
     setAnisotropy(q.aniso);
     const r = this.r;
     r.setPixelRatio(Math.min(devicePixelRatio, 2) * q.pixelRatio);
+    const sh = q.shadows !== false;
+    if (r.shadowMap.enabled !== sh) { r.shadowMap.enabled = sh; this.scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.needsUpdate = true); }); }
+    if (sun) sun.castShadow = sh;
+    this.scene.userData.fogBoost = q.post === false ? 2.2 : 1;
     if (sun) {
       sun.shadow.mapSize.set(q.shadow, q.shadow);
       if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
@@ -66,7 +71,8 @@ export class Renderer {
 
   buildComposer() {
     const r = this.r, q = this.q;
-    if (this.composer) this.composer.dispose();
+    if (this.composer) { this.composer.dispose(); this.composer = null; }
+    if (q.post === false) { this.ao = null; this.bloom = null; this.grade = null; this.resize(); return; }
     const size = r.getDrawingBufferSize(new THREE.Vector2());
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: q.smaa ? 0 : 0 });
     const comp = this.composer = new EffectComposer(r, rt);
@@ -101,6 +107,7 @@ export class Renderer {
   }
 
   render(t) {
+    if (this.q.post === false) { this.r.render(this.scene, this.camera); return; }
     if (this.grade) this.grade.uniforms.uTime.value = t;
     this.composer.render();
   }

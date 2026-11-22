@@ -14,7 +14,8 @@ import { Input } from './input.js';
 import * as W from './world.js';
 import { Traffic } from './traffic.js';
 import { Vehicle } from './vehicle.js';
-import { Population } from './npc.js';
+import { Population, walkPath as walkPathTo } from './npc.js';
+import { groundHeight } from './physics.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
 import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
 import { Places, PJOBS } from './places.js';
@@ -33,9 +34,10 @@ const game = window.game = { time: 0, hour: 8.0, day: 1, timeScale: 30 }; // 1 s
 async function start() {
   const R = game.R = new Renderer($('c'));
   const scene = R.scene, camera = R.camera;
-  let q = 'high'; try { q = localStorage.getItem('lumen.quality') || 'high'; } catch (e) {}
+  let q = 'low'; try { q = localStorage.getItem('lumen.quality') || 'low'; } catch (e) {}
+  game.autoQ = true; try { game.autoQ = localStorage.getItem('lumen.autoq') !== '0'; } catch (e) {}
   const sky = game.sky = new Sky(R.r, scene);
-  R.setQuality(q, sky.sun);
+  R.setQuality(q, sky.sun); sky.envEvery = R.q.envEvery || 0.25;
 
   setLoad(0.03, 'Chargement des ciels HDRI…');
   await sky.load(p => setLoad(0.03 + p * 0.2));
@@ -54,7 +56,7 @@ async function start() {
   // voitures garées (≈ 30 % des places) + circulation permanente
   const spots = W.parkingSpots.slice().sort(() => Math.random() - 0.5).slice(0, 60);
   for (const sp of spots) traffic.parkAt(traffic.newCar(), sp);
-  for (let k = 0; k < R.q.traffic; k++) {
+  for (let k = 0; k < R.q.traffic + 18; k++) {
     const e = W.edges[Math.floor(Math.random() * W.edges.length)];
     const ai = traffic.newCar(); ai.edge = e; ai.t = W.RW + 2 + Math.random() * (e.len - 2 * W.RW - 10); ai.state = 'drive'; ai.v = 8; traffic.wander(ai);
   }
@@ -70,7 +72,7 @@ async function start() {
   let saved = null; try { saved = JSON.parse(localStorage.getItem('lw.profile') || 'null'); } catch (e) {}
   game.profile = saved || { model: 'rpm', first: 'Lucas', last: 'Moreau', top: '#3b5b8c', bottom: '#2b2b30' };
   setPlayerChar(scene, player, game.profile);
-  player.dyn = (p) => traffic.circles(p, 8);
+  player.dyn = (p) => traffic.circles(p, 8).concat(game.net ? game.net.circles(p) : []);
   setLoad(0.85, 'Habitants : emplois du temps, relations…'); await tick();
   const pop = game.pop = new Population(scene, traffic, charCache, game);
   pop.maxVisible = R.q.npc;
@@ -93,6 +95,11 @@ async function start() {
   setLoad(1, 'Prêt'); await tick();
   $('loading').style.opacity = 0; setTimeout(() => $('loading').remove(), 900);
   setupMenu(R, sky);
+  game.net.start();
+  const ob = $('onlineBtn'); const om = () => ob.textContent = 'Monde public : ' + (game.net.enabled ? 'activé' : 'désactivé (solo)');
+  om(); ob.onclick = () => { game.net.setEnabled(!game.net.enabled); om(); };
+  addEventListener('keydown', e => { if (e.code === 'KeyV' && !e.repeat) game.net.ptt(true); });
+  addEventListener('keyup', e => { if (e.code === 'KeyV') game.net.ptt(false); });
   if (!saved) createCharacter(scene, player, camera).then(() => { $('hud').hidden = false; });
   else $('hud').hidden = false;
 
@@ -113,7 +120,7 @@ async function start() {
       if (input.pressed('KeyF')) toggleCar();
       if (input.pressed('KeyE')) handleE();
       if (input.pressed('KeyP')) togglePhone();
-      gameplayUpdate(dt);
+      gameplayUpdate(dt); fxUpdate(dt);
       if (game.seq) seqUpdate(dt);
       else if (game.veh) driveUpdate(dt);
       else { player.update(dt, input); player.updateCamera(dt, player.pos); }
@@ -133,7 +140,7 @@ async function start() {
     R.render(game.time);
     input.endFrame();
     hud(); fpsAcc += dt; fpsN++;
-    if (fpsAcc > 1) { game.fps = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; $('stats').textContent = `${game.fps} i/s · ${R.r.info.render.calls} appels · ${(R.r.info.render.triangles / 1e6).toFixed(2)} M triangles`; }
+    if (fpsAcc > 1) { game.fps = Math.round(fpsN / fpsAcc); autoQuality(R, sky); fpsAcc = 0; fpsN = 0; $('stats').textContent = `${game.fps} i/s · ${R.r.info.render.calls} appels · ${(R.r.info.render.triangles / 1e6).toFixed(2)} M triangles`; }
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
@@ -189,11 +196,46 @@ function toggleCar() {
     game.veh.vz = 0; game.veh.vx = 0;
     return;
   }
-  const ai = nearestCar(); if (!ai) return;
-  if (ai.owner && ai.owner !== 'player' && !game.stealOk) { /* voiture d'un habitant : on autorise, mais il s'en souviendra */ }
-  game.seq = { type: 'enter', ai, t: 0, phase: 'walk' };
+  let ai = nearestCar(), jack = false;
+  if (!ai) { // car-jacking : voiture en circulation, lente ou arrêtée
+    let bd = 4.5;
+    for (const c of game.traffic.cars) { if (c.state !== 'drive' || c.v > 7) continue; const d = c.pos.distanceTo(pl.pos); if (d < bd) { bd = d; ai = c; } }
+    if (!ai) return; jack = true;
+    ai.prevState = ai.state; ai.state = 'jacked'; ai.v = 0;
+  }
+  game.seq = { type: 'enter', ai, t: 0, phase: 'walk', jack, steal: !ai.ownerIsPlayer };
   pl.mode = 'seq';
 }
+// Conducteur éjecté : il sort du siège, trébuche puis s'enfuit en courant (ou rentre chez lui s'il s'agit d'un habitant).
+const fx = [];
+function ejectDriver(ai) {
+  const owner = ai.owner && ai.owner.memory ? ai.owner : null;
+  const base = owner ? game.charBases[owner.model] : game.charBases.rpm;
+  const ch = new Character(base, { tint: owner ? owner.tint : { Outfit_Top: new THREE.Color().setHSL(Math.random(), 0.4, 0.4), Outfit_Bottom: new THREE.Color(0x2b2b30) } });
+  seatPose(ai.car, ch); ch.play('sit', 0); game.R.scene.add(ch.obj);
+  fx.push({ ch, ai, owner, t: 0, from: ch.obj.position.clone(), door: doorPoint(ai.car) });
+  if (owner) { game.pop.remember(owner, `s'est fait arracher de sa voiture par ${game.profile.first}`); owner.playerOpinion = -1; owner.car = null; }
+}
+function fxUpdate(dt) {
+  for (const f of [...fx]) {
+    f.t += dt; const ch = f.ch;
+    if (f.t < 0.9) { const k = f.t / 0.9; ch.obj.position.lerpVectors(f.from, f.door.clone().setY(0.0), k * k); ch.obj.rotation.y = f.ai.car.obj.rotation.y + Math.PI / 2 * k; if (k > 0.4) ch.play('idle', 0.3); }
+    else {
+      if (!f.away) { f.away = ch.obj.position.clone().sub(f.ai.pos).setY(0).normalize(); ch.play('run', 0.25); }
+      const nx = ch.obj.position.x + f.away.x * 5.2 * dt, nz = ch.obj.position.z + f.away.z * 5.2 * dt;
+      const r = game.world.resolve(nx, nz, 0.3); ch.obj.position.set(r.x, groundHeight(r.x, r.z), r.z); if (r.hit) f.away.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.8);
+      ch.obj.rotation.y = Math.atan2(f.away.x, f.away.z);
+      if (f.t > 1.6 && f.owner) { // l'habitant reprend sa vie : il rentre à pied
+        const p = f.owner; p.pos.copy(ch.obj.position); p.state = 'walk'; p.path = walkPathTo(p.pos, p.home.door.p); p.pi = 0; p.task = { go: p.home, why: 'rentrer après le vol', stay: 12 };
+        p.onArrive = () => game.pop.arrive(p, p.task);
+        game.R.scene.remove(ch.obj); fx.splice(fx.indexOf(f), 1); continue;
+      }
+      if (f.t > 7) { game.R.scene.remove(ch.obj); fx.splice(fx.indexOf(f), 1); continue; }
+    }
+    ch.update(dt);
+  }
+}
+
 function seatPose(car, ch) {
   const p = car.obj.localToWorld(SEAT.clone());
   ch.obj.position.set(p.x, car.obj.position.y + SEAT.y - ch.hipH + 0.02, p.z);
@@ -211,8 +253,20 @@ function seqUpdate(dt) {
         pl.yaw = Math.atan2(d.x, d.z); ch.play('walk', 0.25);
       }
       s.walkT = (s.walkT || 0) + dt;
-      if (dist <= 0.12 || s.walkT > 3) { s.phase = 'sit'; s.t = 0; s.from = pl.pos.clone(); s.fromYaw = pl.yaw; ch.play('sit', 0.7); }
+      if (dist <= 0.12 || s.walkT > 3) {
+        s.t = 0; s.from = pl.pos.clone(); s.fromYaw = pl.yaw;
+        if (s.jack) { s.phase = 'pull'; ch.play('talk', 0.2); ejectDriver(s.ai); }
+        else if (s.steal) { s.phase = 'break'; ch.play('talk', 0.25); pl.yaw = car.obj.rotation.y - Math.PI / 2; }
+        else { s.phase = 'sit'; ch.play('sit', 0.7); }
+      }
       ch.obj.position.copy(pl.pos); ch.obj.rotation.y = pl.yaw;
+    } else if (s.phase === 'break' || s.phase === 'pull') {
+      // forcer la portière / arracher le conducteur, face à la voiture
+      s.t += dt; const face = car.obj.rotation.y - Math.PI / 2;
+      let dy = face - pl.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); pl.yaw += dy * Math.min(1, dt * 10);
+      ch.obj.rotation.y = pl.yaw; ch.obj.position.copy(pl.pos);
+      if (s.phase === 'pull' && s.t > 0.35) pl.pos.addScaledVector(new THREE.Vector3(Math.sin(face), 0, Math.cos(face)), -dt * 0.6); // recul en tirant
+      if (s.t > (s.phase === 'break' ? 1.6 : 1.1)) { if (s.phase === 'break' && Math.random() < 0.3) { game.life.notify('🚨 Alarme !'); game.police.addWanted(1, 'alarme de voiture'); } s.phase = 'sit'; s.t = 0; s.from = pl.pos.clone(); s.fromYaw = pl.yaw; ch.play('sit', 0.7); }
     } else {
       s.t += dt; const k = Math.min(1, s.t / 1.2), e = k * k * (3 - 2 * k);
       const seat = car.obj.localToWorld(SEAT.clone()); seat.y = car.obj.position.y + SEAT.y - ch.hipH + 0.02;
@@ -242,10 +296,11 @@ function startDriving(ai) {
   const pl = game.player;
   if (ai.spot) { ai.spot.taken = null; ai.spot = null; }
   if (ai.owner && ai.owner !== 'player' && ai.owner.memory) { game.pop.remember(ai.owner, `s'est fait voler sa voiture par ${game.profile.first}`); ai.owner.car = null; }
-  if (!ai.ownerIsPlayer && Math.random() < 0.45) game.police.addWanted(1, 'vol de véhicule');
+  if (!ai.ownerIsPlayer && (game.seq && game.seq.jack ? Math.random() < 0.85 : Math.random() < 0.4)) game.police.addWanted(game.seq && game.seq.jack ? 2 : 1, game.seq && game.seq.jack ? 'car-jacking' : 'vol de véhicule');
+  if (ai.target) { ai.target.taken = null; ai.target = null; } ai.route = []; ai.turn = null; ai.wander = false;
   ai.state = 'player';
   const v = game.veh = new Vehicle(ai.car, game.world); game.vehAI = ai;
-  v.dyn = (p) => game.traffic.circles(p);
+  v.dyn = (p) => game.traffic.circles(p).concat(game.net.circles(p));
   v.place(ai.pos.x, ai.pos.z, ai.heading); v.spin = ai.spin;
   pl.mode = 'car'; game.seq = null;
   pl.camYaw = v.heading + Math.PI; pl.camPitch = 0.16; pl.camInit = false;
@@ -433,6 +488,18 @@ let toastT = 0;
 function toast(msg) { const el = $('toast'); el.textContent = msg; el.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 3200); }
 game.toast = toast;
 
+// Qualité adaptative : on baisse d'un cran si le jeu tourne sous 28 i/s pendant ~5 s.
+const QORDER = ['potato', 'low', 'medium', 'high', 'ultra'];
+function autoQuality(R, sky) {
+  if (!game.autoQ || game.creating || game.paused || document.hidden) return;
+  game.lowFps = game.fps < 28 ? (game.lowFps || 0) + 1 : 0;
+  if (game.lowFps >= 5) {
+    game.lowFps = -6; const i = QORDER.indexOf(R.quality);
+    if (i > 0) { R.setQuality(QORDER[i - 1], sky.sun); game.pop.maxVisible = R.q.npc; game.life.notify('Qualité ajustée automatiquement : ' + ['Très basse', 'Basse', 'Moyenne', 'Haute', 'Ultra'][i - 1]); markQ(); sky.envEvery = R.q.envEvery || 0.25; }
+  }
+}
+let markQ = () => {};
+
 function updateNight(city, sky) {
   const n = sky.night;
   const u = city.glassMat.userData.uniforms;
@@ -460,7 +527,8 @@ function hud() {
 function setupMenu(R, sky) {
   const btns = [...document.querySelectorAll('#qrow button')];
   const mark = () => btns.forEach(b => b.classList.toggle('on', b.dataset.q === R.quality));
-  btns.forEach(b => b.onclick = () => { R.setQuality(b.dataset.q, sky.sun); mark(); });
+  markQ = mark;
+  btns.forEach(b => b.onclick = () => { R.setQuality(b.dataset.q, sky.sun); sky.envEvery = R.q.envEvery || 0.25; game.pop.maxVisible = R.q.npc; game.autoQ = false; try { localStorage.setItem('lumen.autoq', '0'); } catch (e) {} mark(); });
   mark();
   $('tod').oninput = (e) => { game.hour = +e.target.value; };
   $('resume').onclick = toggleMenu;

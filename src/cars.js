@@ -53,11 +53,26 @@ export async function loadCarTemplate(id) {
       wheels[k] = { steer, spin, radius: (wb.max.y - wb.min.y) / 2, pos: wc.clone() };
     }
     // volant
-    let steeringWheel = null;
+    // volant : centre et axe de rotation déduits de la géométrie (plan de la jante = plus petite variance)
     for (const m of meshes) if (/Steering/i.test(m.name)) {
-      const b = new THREE.Box3().setFromObject(m); const cc = b.getCenter(new THREE.Vector3());
-      const piv = new THREE.Group(); piv.position.copy(cc); piv.userData.isSteering = true; root.add(piv); root.updateMatrixWorld(true);
-      piv.attach(m); steeringWheel = piv; break;
+      const pos = m.geometry.attributes.position, v = new THREE.Vector3(), pts = [];
+      const step = Math.max(1, Math.floor(pos.count / 1500));
+      for (let i = 0; i < pos.count; i += step) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); pts.push(v.clone()); }
+      // ne garder que la partie côté conducteur (x > 0) si le maillage contient deux volants
+      const drv = pts.filter(p => p.x > 0.05); const P = drv.length > 30 ? drv : pts;
+      const c = P.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / P.length);
+      const C = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+      for (const p of P) { const d = [p.x - c.x, p.y - c.y, p.z - c.z]; for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) C[r * 3 + k] += d[r] * d[k]; }
+      const tr = C[0] + C[4] + C[8];
+      const Mx = new THREE.Matrix3().set(tr - C[0], -C[1], -C[2], -C[3], tr - C[4], -C[5], -C[6], -C[7], tr - C[8]);
+      let ax = new THREE.Vector3(0.1, 0.3, 1);
+      for (let it = 0; it < 40; it++) ax.applyMatrix3(Mx).normalize();
+      if (ax.z < 0) ax.negate();
+      if (c.y > 0.4 && c.y < 1.5 && Math.abs(c.z) < tpl0Len(spec) / 2) {
+        const piv = new THREE.Group(); piv.position.copy(c); piv.userData.isSteering = true; piv.userData.axis = ax.toArray(); root.add(piv); root.updateMatrixWorld(true);
+        piv.attach(m);
+      }
+      break;
     }
     // matériaux
     const lights = { head: [], brake: [], reverse: [], blink: [] };
@@ -71,6 +86,7 @@ export async function loadCarTemplate(id) {
       else if (/Reverse/i.test(n)) m.userData.light = 'reverse';
       else if (/Blinkers/i.test(n)) m.userData.light = 'blink';
       m.castShadow = true; m.receiveShadow = true;
+      if (/Interior|Badges|_NP_|NP_Front|NP_Rear|Suspension|Bottom|Reverse|Blinkers|Glass_Driver|Glass_Passanger|Stock_Trim|_inner/i.test(n)) m.userData.detail = true;
     }
     const bb = new THREE.Box3().setFromObject(root);
     const wl = wheels.FL && wheels.RL ? wheels.FL.pos.z - wheels.RL.pos.z : spec.length * 0.6;
@@ -125,13 +141,24 @@ export function makeCar(tpl, paint) {
   });
   void paintMat;
   car.paint = pm;
+  car.details = []; root.traverse(o => { if (o.isMesh && o.userData.detail) car.details.push(o); });
+  car.lod = 0;
   root.traverse(o => {
     if (o.userData.wheel) car.wheels[o.userData.wheel] = { steer: o, spin: o.children[0] };
     if (o.userData.isSteering) car.steeringWheel = o;
   });
   return car;
 }
+function tpl0Len(spec) { return spec.length; }
 function findMat(root, name) { let m = null; root.traverse(o => { if (o.isMesh && o.material && o.material.name === name) m = o.material; }); return m; }
+
+// LOD : au-delà de 45 m, on masque les petits éléments (habitacle, plaques, logos, dessous) et les ombres.
+export function carLOD(car, dist) {
+  const lod = dist > 45 ? 1 : 0;
+  if (lod === car.lod) return; car.lod = lod;
+  for (const m of car.details) m.visible = !lod;
+  car.obj.traverse(o => { if (o.isMesh) o.castShadow = !lod; });
+}
 
 // Mise à jour visuelle : roues (rotation + braquage), volant, feux.
 export function poseCar(car, { spin = 0, steer = 0, brake = false, reverse = false, head = 0, blink = 0 }) {
@@ -141,11 +168,11 @@ export function poseCar(car, { spin = 0, steer = 0, brake = false, reverse = fal
     if (k[0] === 'F') w.steer.rotation.y = steer;
   }
   if (car.steeringWheel) {
-    car.steeringWheel.quaternion.setFromAxisAngle(SW_AXIS, -steer * 7);
+    const a = car.steeringWheel.userData.axis; if (a) { SW_TMP.fromArray(a); car.steeringWheel.quaternion.setFromAxisAngle(SW_TMP, steer * 6); }
   }
   for (const m of car.lights.head) m.emissiveIntensity = head * 4;
   for (const m of car.lights.brake) m.emissiveIntensity = brake ? 6 : head * 1.6;
   for (const m of car.lights.reverse) m.emissiveIntensity = reverse ? 4 : 0;
   for (const m of car.lights.blink) m.emissiveIntensity = blink;
 }
-const SW_AXIS = new THREE.Vector3(0, 0.38, 0.925).normalize();
+const SW_TMP = new THREE.Vector3();

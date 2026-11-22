@@ -118,12 +118,13 @@ export class Sky {
     // Brouillard atmosphérique : teinte de l'horizon.
     this.fogColor.copy(dA.horizon).multiplyScalar(A.sky / dA.avg).lerp(dB.horizon.clone().multiplyScalar(B.sky / dB.avg), m);
     this.scene.fog.color.copy(this.fogColor).multiplyScalar(0.62);
+    this.scene.fog.density = 0.0007 * (this.scene.userData.fogBoost || 1);
 
     this.mesh.position.copy(camera.position);
 
     // Régénère l'environnement PMREM quand le ciel a changé.
     const key = Math.round(h * 20);
-    if (key !== this.lastEnvKey && time - this.lastEnvTime > 0.25) {
+    if (key !== this.lastEnvKey && time - this.lastEnvTime > (this.envEvery || 0.25)) {
       this.lastEnvKey = key; this.lastEnvTime = time;
       const rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 1000);
       this.scene.environment = rt.texture;
