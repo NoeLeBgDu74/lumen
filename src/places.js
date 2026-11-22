@@ -93,6 +93,7 @@ export class Places {
   // ---------- commerces ----------
   _shop(p) {
     const L = this.g.life;
+    if (/Mode/.test(p.name)) return this.clothes(p);
     L.panel(p.name, `<p>Un commerce du quartier.</p>`, [
       { label: 'Acheter un en-cas · 4 €', run: () => { if (L.money(-4, 'en-cas')) L.feed(18); } },
       { label: 'Cambrioler (la nuit) ⚠', run: () => { this.burgle(p); return false; } },
@@ -172,6 +173,21 @@ export class Places {
   _park(p) { const L = this.g.life; L.panel(p.name, '<p>Un coin de verdure.</p>', [{ label: 'Se détendre sur un banc (1 h)', run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 15); L.s.needs.energie = Math.min(100, L.s.needs.energie + 5); }) }, { label: 'Faire un footing (1 h)', run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 12); L.s.needs.energie -= 10; L.s.needs.hygiene -= 15; }) }]); }
   _sports(p) { this._park(p); }
   async temp(p, pay, a, b) { const L = this.g.life, h = this.g.hour; if (h > a + 1 || h < a - 1.5) { L.notify(`Présentez-vous vers ${a}h`, 'warn'); return; } await L.skip(b - h, () => { L.money((b - h) * pay, 'intérim'); L.s.needs.energie -= 40; }); }
+
+  // ---------- boutique de vêtements ----------
+  clothes(p) {
+    const g = this.g, L = g.life, prof = g.profile;
+    const tops = ['#3b5b8c', '#8c2f2f', '#2f6b47', '#e8e4da', '#1d1f24', '#c98a2b', '#6b3f8c', '#7d8a96', '#b85c7a', '#3c7d7a'];
+    const pants = ['#2b2b30', '#3a4a66', '#5a4a3a', '#c9c2b4', '#1a1a1a', '#4b5b3b'];
+    const apply = () => { try { localStorage.setItem('lw.profile', JSON.stringify(prof)); } catch (e) {} g.refreshPlayerChar && g.refreshPlayerChar(); };
+    const sw = (c) => `<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${c};vertical-align:middle;margin-right:6px"></span>`;
+    L.panel(p.name, `<p>Prêt-à-porter. Essayez et achetez (les couleurs s'appliquent aussitôt).</p>`, [
+      ...tops.map(c => ({ label: `${prof.top === c ? '✔ ' : ''}Haut ${c} · 60 €`, keep: true, run: () => { if (prof.top !== c && L.money(-60, 'vêtement')) { prof.top = c; apply(); this.clothes(p); } } })),
+      ...pants.map(c => ({ label: `${prof.bottom === c ? '✔ ' : ''}Pantalon ${c} · 50 €`, keep: true, run: () => { if (prof.bottom !== c && L.money(-50, 'pantalon')) { prof.bottom = c; apply(); this.clothes(p); } } })),
+      { label: prof.hat === false ? 'Remettre le chapeau · gratuit' : 'Enlever le chapeau', keep: true, run: () => { prof.hat = prof.hat === false; apply(); this.clothes(p); } },
+    ]);
+    void sw;
+  }
 
   // ---------- armurerie ----------
   _gunshop(p) {

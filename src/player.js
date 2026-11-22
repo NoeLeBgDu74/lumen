@@ -13,6 +13,7 @@ export class Player {
   place(x, z, yaw = 0) { this.pos.set(x, groundHeight(x, z), z); this.yaw = yaw; this.camYaw = yaw; this.camInit = false; }
 
   update(dt, input) {
+    if (window.game && window.game.photo && window.game.photo.on) return; // mode photo : caméra libre
     const [mx, my, wh] = input.consumeMouse();
     this.camYaw -= mx * 0.0024; this.camPitch = THREE.MathUtils.clamp(this.camPitch + my * 0.002, -0.35, 1.1);
     this.camDist = THREE.MathUtils.clamp(this.camDist + wh * 0.5, 2.2, 9);
@@ -25,7 +26,7 @@ export class Player {
     if (f || s) {
       const fw = new THREE.Vector3(-Math.sin(this.camYaw), 0, -Math.cos(this.camYaw));
       const rt = new THREE.Vector3(-fw.z, 0, fw.x);
-      want.addScaledVector(fw, f).addScaledVector(rt, s).normalize().multiplyScalar((run && !this.tired ? 5.6 * (this.runBoost || 1) : 1.6) * ((adm && adm.speed) || 1));
+      want.addScaledVector(fw, f).addScaledVector(rt, s).normalize().multiplyScalar((run && !this.tired ? 5.6 * (this.runBoost || 1) : 1.6) * ((adm && adm.speed) || 1) * (this.weak ? 0.72 : 1));
     }
     const acc = this.onGround ? 10 : 2;
     this.vel.x += (want.x - this.vel.x) * Math.min(1, acc * dt);

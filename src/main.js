@@ -29,6 +29,7 @@ import { Actions } from './actions.js';
 import { Story } from './story.js';
 import { playIntro } from './intro.js';
 import { Coop } from './coop.js';
+import { Radio, PhotoMode, needsEffects, OUTFITS, PANTS } from './extras.js';
 import { Audio } from './audio.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
 import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
@@ -105,7 +106,8 @@ async function start() {
   game.minimap = new Minimap(game);
   game.peds = new Peds(game); game.peds.max = Math.max(16, R.q.npc + 8);
   game.markers = new Markers(scene);
-  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M); game.homeInt = new HomeInterior(game); game.actions = new Actions(game); game.story = new Story(game); game.coop = new Coop(game); game.audio = new Audio(game);
+  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M); game.homeInt = new HomeInterior(game); game.actions = new Actions(game); game.story = new Story(game); game.coop = new Coop(game); game.radio = new Radio(game); game.photo = new PhotoMode(game);
+  addEventListener('mousedown', (e) => { if (game.photo.on && e.button === 0) game.photo.shoot(); }); game.audio = new Audio(game);
   game.openWardrobe = () => { createCharacter(scene, player, camera).then(() => { setPlayerChar(scene, player, game.profile); }); };
   buildRadars(scene);
   { const ph = W.places.find(p => p.type === 'pharmacy'); window.__lwHospital = ph ? ph.door.p : null; }
@@ -177,6 +179,7 @@ async function start() {
     if (game.audio) game.audio.update(dt);
     if (input.pressed('Escape') || (game.talk && game.talk.open && game.escTalk)) { if (game.talk && game.talk.open) game.talk.close(); else toggleMenu(); }
     if (game.camOverride) game.camOverride();
+    if (game.photo && game.photo.on) game.photo.camera();
     R.render(game.time);
     input.endFrame();
     hud(); fpsAcc += dt; fpsN++;
@@ -194,8 +197,10 @@ function setPlayerChar(scene, player, prof) {
   // les couleurs RPM sont multiplicatives sur une texture claire : on éclaircit pour garder la teinte voulue
   const ch = new Character(bases(prof.model), { tint: tint && Object.fromEntries(Object.entries(tint).map(([k, v]) => [k, lift(v)])) });
   scene.add(ch.obj); player.char = ch;
+  ch.model.traverse(o => { if (o.isMesh && /Headwear/.test(o.material.name)) o.visible = prof.hat !== false; });
   ch.obj.position.copy(player.pos); ch.obj.rotation.y = player.yaw;
 }
+game.refreshPlayerChar = () => { const P = game.player; const pos = P.pos.clone(), yaw = P.yaw; setPlayerChar(game.R.scene, P, game.profile); P.char.obj.position.copy(pos); P.char.obj.rotation.y = yaw; };
 function lift(hex) { return new THREE.Color(hex).multiplyScalar(1.6); }
 function bases(id) { return charCache[id]; }
 const charCache = {};
@@ -626,6 +631,10 @@ let pedHitT = 0;
 function gameplayUpdate(dt) {
   game.actions.update(dt);
   if (game.coop) game.coop.update(dt);
+  game.radio.update();
+  game.fxT = (game.fxT || 0) + dt; if (game.fxT > 0.5) { game.fxT = 0; needsEffects(game); }
+  if (game.input.pressed('KeyM') && (game.veh || game.taxi)) game.radio.cycle();
+  if (game.input.pressed('KeyJ') && !game.veh && !game.seq) game.photo.toggle();
   const L = game.life; L.update(dt); game.places.update(dt); game.police.update(dt); game.net.update(dt);
   game.minimapT = (game.minimapT || 0) + dt; if (game.minimapT > 0.05) { game.minimapT = 0; game.minimap.draw(); }
   const v = game.veh; $('fuel').hidden = !v;
