@@ -180,7 +180,7 @@ export class Combat {
   }
   targets() {
     const g = this.g, out = [];
-    for (const p of g.peds.list) if (p.state !== 'down') out.push({ pos: p.pos, hit: (dir) => { g.peds.knock(p, dir); } });
+    for (const p of g.peds.list) if (p.state !== 'down') out.push({ pos: p.pos, hit: (dir) => { g.peds.knock(p, dir, 30); } });
     for (const p of g.pop.people) if (p.char && !p.hurt) out.push({ pos: p.pos, hit: (dir) => {
       p.hurt = true; p.knockT = g.time; p.knockDir = dir.clone().setY(0).normalize(); p.resume = 'walk'; p.state = 'talk'; p.talkUntil = g.time + 7;
       setTimeout(() => { p.hurt = false; }, 7000); g.pop.remember(p, `s'est fait agresser par ${g.profile.first}`); p.playerOpinion = -1;

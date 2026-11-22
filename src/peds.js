@@ -65,6 +65,7 @@ export class Peds {
     p.vel = p.fall.clone().multiplyScalar(v * (kmh > 30 ? 0.75 : 0.55)).add(new THREE.Vector3((Math.random() - 0.5) * 1.5, kmh > 30 ? 2 + v * 0.22 : 1.2, (Math.random() - 0.5) * 1.5));
     p.spinV = (kmh > 30 ? 9 : 5) * (0.7 + Math.random() * 0.6); p.tumble = 0; p.airY = 0; p.landed = false;
     p.downFor = 4 + Math.min(10, kmh / 6);
+    if (kmh > 28 && this.g.living) this.g.living.callAmbulance(p);
     p.ch.play('idle', 0.1); p.ch.overlay(null);
     this.g.audio && (this.g.audio.burst(0.18, 380, 0.5), this.g.audio.scream(p.female));
   }
@@ -111,6 +112,7 @@ export class Peds {
           p.ch.obj.rotation.set(-k, p.heading, 0, 'YXZ');
         } else { // glisse puis allongé
           p.vel.multiplyScalar(Math.pow(0.02, dt)); p.pos.x += p.vel.x * dt; p.pos.z += p.vel.z * dt;
+          if (p.waitAmb) p.t = Math.min(p.t, p.downFor - 0.01); // reste au sol jusqu'aux soins
           const up = p.t > p.downFor ? Math.min(1, (p.t - p.downFor) / 0.8) : 0;
           p.ch.obj.rotation.set(-Math.PI / 2 * (1 - up), p.lieYaw, 0, 'YXZ');
           if (p.t > p.downFor + 0.8) { p.state = 'flee'; p.t = 0; p.ch.obj.rotation.set(0, p.heading, 0); p.vel = null; }

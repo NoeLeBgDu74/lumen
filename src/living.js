@@ -16,6 +16,7 @@ export class Living {
     this.skid = new THREE.InstancedMesh(this.skidGeo, new THREE.MeshBasicMaterial({ color: 0x0a0a0a, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 }), 1500);
     this.skid.count = 0; this.skid.frustumCulled = false; this.skidN = 0; game.R.scene.add(this.skid);
     this.birds = []; this.spawnBirds();
+    this.emergencies = [];
     this.fires = []; this.nextFire = game.time + 200 + Math.random() * 200;
     this.flameTex = flameTexture(); this.smokeTex = smokeTexture();
   }
@@ -162,6 +163,56 @@ export class Living {
     }
   }
 
+  // ---------- ambulance : blessé (piéton renversé, agressé) → secours ----------
+  callAmbulance(victim) {
+    const g = this.g; if (this.emergencies.find(e => e.victim === victim) || this.emergencies.length > 2) return;
+    victim.waitAmb = true;
+    const em = { victim, t: 0, phase: 'wait' };
+    this.emergencies.push(em);
+    setTimeout(() => { if (!this.emergencies.includes(em)) return;
+      const ai = g.traffic.newCar('lightbody90', '#f4f4f2'); ai.state = 'fire';
+      const p = victim.pos, a = Math.random() * 6.28; ai.pos.set(p.x + Math.cos(a) * 140, 0, p.z + Math.sin(a) * 140); const r = g.world.resolve(ai.pos.x, ai.pos.z, 3); ai.pos.set(r.x, 0, r.z);
+      ai.heading = Math.atan2(p.x - ai.pos.x, p.z - ai.pos.z); ai.v = 8;
+      const bar = new THREE.Group(); const mk = (c) => new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.14, 0.24), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0 }));
+      const l1 = mk(0x2a5cff), l2 = mk(0xff2a2a); l1.position.x = 0.32; l2.position.x = -0.32; bar.add(l1, l2); bar.position.set(0, ai.tpl.size.y + 0.05, 0.8); ai.car.obj.add(bar);
+      // bande rouge « ambulance »
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(ai.tpl.size.x + 0.02, 0.18, ai.tpl.size.z * 0.8), new THREE.MeshStandardMaterial({ color: 0xc8102e, roughness: 0.5 }));
+      stripe.position.set(0, 1.0, 0); ai.car.obj.add(stripe);
+      em.ai = ai; em.l1 = l1.material; em.l2 = l2.material; em.phase = 'drive';
+      if (p.distanceTo(g.player.pos) < 150) g.life.notify('🚑 Une ambulance arrive', 'ok');
+    }, 8000);
+  }
+  updateEmergencies(dt) {
+    const g = this.g;
+    for (const em of [...this.emergencies]) {
+      em.t += dt; const v = em.victim;
+      if (em.phase === 'drive') {
+        const ai = em.ai, dest = v.pos.clone().add(new THREE.Vector3(3, 0, 3));
+        const d = steerDrive(g, ai, dest, dt, { vmax: 15, direct: ai.pos.distanceTo(dest) < 35, stopDist: 2 });
+        poseCar(ai.car, { spin: ai.spin, steer: ai.steer, brake: ai.v < 3, head: 1 });
+        if ((d < 4 && ai.v < 0.6) || em.t > 70) {
+          if (em.t > 70) { ai.pos.copy(dest); ai.car.obj.position.copy(dest); }
+          em.phase = 'care'; em.t = 0;
+          const medic = new Character(g.charBases.soldier || g.charBases.rpm, { height: 1.78 });
+          medic.obj.position.copy(ai.car.obj.localToWorld(new THREE.Vector3(ai.tpl.size.x / 2 + 0.6, 0, 0)));
+          g.R.scene.add(medic.obj); em.medic = medic;
+        }
+      } else if (em.phase === 'care') {
+        const m = em.medic, to = v.pos.clone().sub(m.obj.position); to.y = 0; const d = to.length();
+        if (d > 1.0) { m.obj.position.addScaledVector(to.normalize(), Math.min(d, 2.2 * dt)); m.obj.rotation.y = Math.atan2(to.x, to.z); m.play('walk', 0.3); }
+        else { m.play('crouch', 0.4); m.obj.position.y = v.pos.y - 0.35; em.careT = (em.careT || 0) + dt; }
+        m.update(dt);
+        if ((em.careT || 0) > 6) { v.waitAmb = false; v.healed = true; em.phase = 'leave'; em.t = 0; if (v.pos.distanceTo(g.player.pos) < 120) g.life.notify('🚑 La victime a été prise en charge'); m.obj.position.y = 0.15; }
+      } else if (em.phase === 'leave') {
+        const m = em.medic, back = em.ai.car.obj.localToWorld(new THREE.Vector3(em.ai.tpl.size.x / 2 + 0.6, 0, 0)), to = back.clone().sub(m.obj.position); to.y = 0;
+        if (to.length() > 0.5) { m.obj.position.addScaledVector(to.normalize(), 2.2 * dt); m.obj.rotation.y = Math.atan2(to.x, to.z); m.play('walk', 0.3); m.update(dt); }
+        else if (!em.gone) { em.gone = true; g.R.scene.remove(m.obj); setTimeout(() => { g.traffic.remove(em.ai); this.emergencies.splice(this.emergencies.indexOf(em), 1); }, 5000); }
+      }
+      if (em.ai) { const ph = Math.floor(g.time * 5) % 2; em.l1.emissiveIntensity = em.phase === 'drive' ? (ph ? 12 : 0) : 4; em.l2.emissiveIntensity = em.phase === 'drive' ? (ph ? 0 : 12) : 4; }
+      if (em.phase === 'wait' && em.t > 30) { v.waitAmb = false; this.emergencies.splice(this.emergencies.indexOf(em), 1); }
+    }
+  }
+
   // ---------- incendie : flammes, fumée, alerte, camion de pompiers, lances à eau ----------
   startFire(at) {
     const g = this.g, me = g.veh ? g.veh.pos : g.player.pos;
@@ -253,6 +304,7 @@ export class Living {
     if (g.time > this.nextCrime) { this.nextCrime = g.time + 150 + Math.random() * 180; if (!g.net || !g.net.connected || g.net.host) this.startCarTheft(); }
     if (g.time > this.nextIncident) { this.nextIncident = g.time + 120 + Math.random() * 150; if (!g.net || !g.net.connected || g.net.host) this.incident(); }
     if (g.time > this.nextFire) { this.nextFire = g.time + 300 + Math.random() * 300; if (!g.net || !g.net.connected || g.net.host) this.startFire(); }
+    this.updateEmergencies(dt);
     this.updateThieves(dt); this.updateIncidents(dt); this.updateSkids(); this.updateBirds(dt); this.updateFires(dt);
   }
 }
