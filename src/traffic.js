@@ -13,11 +13,11 @@ export class Traffic {
 
   async load() { this.templates = await Promise.all(CATALOG.map(c => loadCarTemplate(c.id))); }
 
-  newCar(specId, paint) {
+  newCar(specId, paint, forceId) {
     const tpl = specId ? this.templates.find(t => t.spec.id === specId) : this.templates[Math.floor(Math.random() * this.templates.length)];
     const car = makeCar(tpl, paint || PAINTS[Math.floor(Math.random() * PAINTS.length)]);
     this.scene.add(car.obj);
-    const ai = { id: uid++, car, tpl, state: 'parked', edge: null, t: 0, off: W.LANE, v: 0, spin: 0, steer: 0, heading: 0,
+    const ai = { id: forceId !== undefined ? forceId : (this.idPrefix ? this.idPrefix + (uid++) : uid++), car, tpl, state: 'parked', edge: null, t: 0, off: W.LANE, v: 0, spin: 0, steer: 0, heading: 0,
       pos: new THREE.Vector3(), route: [], turn: null, spot: null, owner: null, onArrive: null, aggr: 0.9 + Math.random() * 0.25, brake: false, waitT: 0 };
     this.cars.push(ai);
     return ai;
@@ -30,8 +30,21 @@ export class Traffic {
     this.sync(ai);
   }
 
+  // Client multijoueur : les voitures sont pilotées par l'hôte ; on interpole leurs états.
+  updateMirror(dt, ctx) {
+    for (const ai of this.cars) {
+      const n = ai.net; if (!n || ai.state === 'player' || ai.state === 'remote') continue;
+      if (Math.abs(n.x - ai.pos.x) + Math.abs(n.z - ai.pos.z) > 25) { ai.pos.set(n.x, 0, n.z); ai.heading = n.h; } // recalage
+      ai.pos.x += (n.x - ai.pos.x) * Math.min(1, dt * 8); ai.pos.z += (n.z - ai.pos.z) * Math.min(1, dt * 8);
+      let dh = n.h - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); ai.heading += dh * Math.min(1, dt * 8);
+      ai.v = n.v; ai.steer = n.st; ai.brake = !!(n.fl & 1); ai.blink = (n.fl & 2) ? (Math.floor(this.time * 3) % 2) * 3 : 0;
+      ai.spin += ai.v * dt / (ai.tpl.wheelR || 0.33);
+      this.sync(ai, ctx);
+    }
+  }
   // Lance un trajet vers un lieu ; cb(ai) à l'arrivée (garé).
   drive(ai, place, cb) {
+    if (this.mirror) return false;
     const dest = place.door ? place.door.p : new THREE.Vector3(place.x, 0, place.z);
     // place libre la plus proche de la destination
     let best = null, bd = Infinity;
@@ -81,6 +94,7 @@ export class Traffic {
 
   update(dt, ctx) {
     this.time += dt;
+    if (this.mirror) { this.updateMirror(dt, ctx); return; }
     const obstacles = ctx.obstacles || [];
     for (const ai of this.cars) {
       if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police' || ai.state === 'jacked' || ai.state === 'broken') continue;

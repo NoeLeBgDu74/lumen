@@ -21,6 +21,7 @@ import { Markers } from './markers.js';
 import { Combat } from './combat.js';
 import { Admin } from './admin.js';
 import { Living } from './living.js';
+import { Weather } from './weather.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
 import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
 import { Places, PJOBS } from './places.js';
@@ -31,7 +32,9 @@ import { signalState } from './city.js';
 
 async function loadCharBase(id) { const b = await loadCharBase0(id); charCache[id] = b; return b; }
 const $ = (id) => document.getElementById(id);
-const setLoad = (p, t) => { $('loadbar').style.width = Math.round(p * 100) + '%'; if (t) $('loadtxt').textContent = t; };
+const setLoad = (p, t) => { $('loadbar').style.width = Math.round(p * 100) + '%'; $('loadpct').textContent = Math.round(p * 100) + ' %'; if (t) $('loadtxt').textContent = t; };
+const TIPS = ['Les habitants se souviennent de vous : soyez aimable… ou pas.', 'Un témoin peut relever votre plaque : changez de voiture pour semer la police.', 'Passez votre permis à l’auto-école pour acheter une voiture.', 'Touche P : votre téléphone (GPS, contacts, banque, multijoueur).', 'Demandez « quoi de neuf ? » aux habitants pour entendre les rumeurs.', 'Sous la pluie, la route glisse : freinez plus tôt.', 'Clic droit pour viser, clic gauche pour tirer, R pour recharger.', 'Touche H pour saluer les autres joueurs.', 'Tout le monde joue dans la même ville : invitez vos amis !'];
+{ let ti = Math.floor(Math.random() * TIPS.length); const showTip = () => { const el = $('tip'); if (!el) return; el.style.opacity = 0; setTimeout(() => { el.textContent = '💡 ' + TIPS[ti++ % TIPS.length]; el.style.opacity = 1; }, 400); }; showTip(); const tid = setInterval(() => { if (!$('tip')) clearInterval(tid); else showTip(); }, 4500); }
 const tick = () => new Promise(r => requestAnimationFrame(() => r()));
 
 const game = window.game = { time: 0, hour: 8.0, day: 1, timeScale: 30 }; // 1 s réelle = 30 s de jeu (une journée = 48 min)
@@ -58,6 +61,8 @@ async function start() {
   setLoad(0.66, 'Véhicules…');
   const traffic = game.traffic = new Traffic(scene);
   await traffic.load();
+  // génération déterministe (mêmes voitures chez tous les joueurs du monde public)
+  const mr0 = Math.random; let seed0 = 4242; Math.random = () => { seed0 ^= seed0 << 13; seed0 ^= seed0 >>> 17; seed0 ^= seed0 << 5; return ((seed0 >>> 0) % 1e9) / 1e9; };
   // voitures garées (≈ 30 % des places) + circulation permanente
   const spots = W.parkingSpots.slice().sort(() => Math.random() - 0.5).slice(0, 60);
   for (const sp of spots) traffic.parkAt(traffic.newCar(), sp);
@@ -65,6 +70,7 @@ async function start() {
     const e = W.edges[Math.floor(Math.random() * W.edges.length)];
     const ai = traffic.newCar(); ai.edge = e; ai.t = W.RW + 2 + Math.random() * (e.len - 2 * W.RW - 10); ai.state = 'drive'; ai.v = 8; traffic.wander(ai);
   }
+  Math.random = mr0;
 
   setLoad(0.72, 'Habitants…');
   await Promise.all([loadCharBase('rpm'), loadCharBase('michelle'), loadCharBase('soldier')]);
@@ -84,13 +90,14 @@ async function start() {
   // population déterministe : mêmes habitants à chaque partie (mémoire des conversations cohérente)
   const mr = Math.random; let seed = 777; Math.random = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) % 1e9) / 1e9; };
   try { pop.generate(220); } finally { Math.random = mr; }
+  traffic.idPrefix = 'c' + Math.floor(mr() * 1e6) + '_'; // voitures créées ensuite : identifiants uniques par joueur
   game.talk = new Talk(game);
   game.charBases = charCache;
   game.life = new Life(game); game.places = new Places(game); game.police = new Police(game); game.net = new Net(game);
   game.minimap = new Minimap(game);
   game.peds = new Peds(game); game.peds.max = Math.max(6, R.q.npc - 4);
   game.markers = new Markers(scene);
-  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living;
+  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M);
   { const ph = W.places.find(p => p.type === 'pharmacy'); window.__lwHospital = ph ? ph.door.p : null; }
   const off = W.places.find(p => p.type === 'office'); game.policeStation = off ? off.door.p : null;
   game.ownedAI = [];
@@ -131,6 +138,7 @@ async function start() {
       if (input.pressed('KeyP')) togglePhone();
       gameplayUpdate(dt); fxUpdate(dt); game.combat.update(dt); game.living.update(dt); if (!game.admin.fly) game.admin.update(dt); game.peds.update(dt); game.markers.update(camera, game.time);
       if (input.pressed('KeyG')) robNearest();
+      if (input.pressed('KeyH') && !game.veh) { player.char.play('wave', 0.2); game.emoteT = game.time + 2.5; game.net.emote('wave'); }
       if (game.seq) seqUpdate(dt);
       else if (game.veh) driveUpdate(dt);
       else if (game.admin && game.admin.fly) { game.admin.update(dt); player.update(dt, input); player.updateCamera(dt, player.pos); }
@@ -144,6 +152,7 @@ async function start() {
       interactPrompt();
     }
     sky.hour = game.hour; sky.update(dt, camera, game.time);
+    if (game.weather) game.weather.update(dt);
     windU.uTime.value = game.time;
     updateNight(city, sky);
     updateSignals(city, game.time);
@@ -248,6 +257,12 @@ function fxUpdate(dt) {
   }
 }
 
+function nearRoad(p) { // hors ville : sommes-nous sur la route de campagne ?
+  const B = W.RING_BOX; const d = Math.min(Math.abs(p.x - B.X0), Math.abs(p.x - B.X1), Math.abs(p.z - B.Z0), Math.abs(p.z - B.Z1));
+  if (d < 5) return true;
+  for (const e of W.edges) { if (e.kind !== 'rural') continue; const A = W.nodes[e.a], Bn = W.nodes[e.b]; if (A.x === Bn.x && Math.abs(p.x - A.x) < 5 && p.z > Math.min(A.z, Bn.z) && p.z < Math.max(A.z, Bn.z)) return true; if (A.z === Bn.z && Math.abs(p.z - A.z) < 5 && p.x > Math.min(A.x, Bn.x) && p.x < Math.max(A.x, Bn.x)) return true; }
+  return false;
+}
 // Mains sur le volant : IK à deux os (épaule → coude → main) vers deux points de la jante qui tournent avec le volant.
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion();
 function handsOnWheel(ch, car, steer) {
@@ -354,12 +369,14 @@ function startDriving(ai) {
   pl.camYaw = v.heading + Math.PI; pl.camPitch = 0.16; pl.camInit = false;
   $('speedo').hidden = false;
   if (!game.license) toast('Attention : vous conduisez sans permis');
+  game.net.send({ t: 'take', id: ai.id });
 }
 function endDriving() {
   const pl = game.player, v = game.veh, ai = game.vehAI, ch = pl.char;
   pl.place(ch.obj.position.x, ch.obj.position.z, ch.obj.rotation.y);
   pl.mode = 'foot'; game.seq = null;
   ai.state = 'parked'; ai.pos.copy(v.pos); ai.heading = v.heading; ai.edge = null; ai.spot = null;
+  game.net.send({ t: 'drop', id: ai.id, x: v.pos.x, z: v.pos.z, h: v.heading }); ai._netParked = false;
   game.veh = null; game.vehAI = null; $('speedo').hidden = true;
   pl.camYaw = v.heading + Math.PI / 2 + Math.PI; pl.camInit = false;
 }
@@ -368,6 +385,7 @@ function driveUpdate(dt) {
   const { f, s } = inp.move();
   if (inp.pressed('KeyC')) game.interior = !game.interior;
   v.headlights = game.sky.night > 0.45 ? 1 : 0;
+  { const offRoad = Math.abs(v.pos.x) > -W.OX + 10 || Math.abs(v.pos.z) > -W.OZ + 10 ? !nearRoad(v.pos) : false; v.gripMul = (game.weather ? game.weather.grip : 1) * (offRoad ? 0.65 : 1); }
   v.update(dt, { throttle: Math.max(0, f), brake: Math.max(0, -f), steer: -s, handbrake: inp.down('Space') });
   const ai = game.vehAI; ai.pos.copy(v.pos); ai.heading = v.heading; ai.v = Math.abs(v.vz);
   // conducteur visible, assis, mains au volant

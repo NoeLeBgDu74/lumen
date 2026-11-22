@@ -154,7 +154,7 @@ export class Living {
   update(dt) {
     const g = this.g;
     if (g.time > this.nextCrime) { this.nextCrime = g.time + 150 + Math.random() * 180; if (!g.net || !g.net.connected || g.net.host) this.startCarTheft(); }
-    if (g.time > this.nextIncident) { this.nextIncident = g.time + 120 + Math.random() * 150; this.incident(); }
+    if (g.time > this.nextIncident) { this.nextIncident = g.time + 120 + Math.random() * 150; if (!g.net || !g.net.connected || g.net.host) this.incident(); }
     this.updateThieves(dt); this.updateIncidents(dt); this.updateSkids(); this.updateBirds(dt);
   }
 }

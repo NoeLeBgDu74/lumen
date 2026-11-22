@@ -59,7 +59,7 @@ export class Player {
     this.pos.set(nx, y, nz);
 
     c.obj.position.copy(this.pos); c.obj.rotation.y = this.yaw;
-    if (this.jumpT > 0) { /* animation de saut en cours */ }
+    if (this.jumpT > 0 || (window.game && window.game.emoteT > window.game.time && this.speed < 0.3)) { /* saut ou emote en cours */ }
     else if (!this.onGround) c.play(c.has('fall') ? 'fall' : 'idle', 0.2);
     else if (this.speed > 4.2) c.play('run', 0.3, this.speed / 5.6);
     else if (this.speed > 2.2 && c.has('jog')) c.play('jog', 0.3, this.speed / 3.6);

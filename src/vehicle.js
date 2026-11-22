@@ -17,6 +17,7 @@ export class Vehicle {
     this.steer = 0; this.spin = 0; this.gear = 1; this.rpm = 900; this.throttle = 0; this.brake = 0;
     this.fuel = s.fuel * 0.6; this.odo = 0; this.damage = 0; this.reverse = false;
     this.wheelR = car.tpl.wheelR || 0.33;
+    this.pitch = 0; this.roll = 0; this.pitchV = 0; this.rollV = 0; this.heave = 0; this.heaveV = 0;
   }
   place(x, z, heading) { this.pos.set(x, 0, z); this.heading = heading; this.vx = this.vz = this.yawRate = 0; this.sync(); }
   get speed() { return this.vz; }
@@ -50,9 +51,13 @@ export class Vehicle {
     let Fdrive = thr * peakTorque * torqueCurve * ratio * FINAL * 0.9 / this.wheelR;
     Fdrive = Math.min(Fdrive, this.mass * 9.81 * 0.95); // limite d'adhérence (antipatinage)
     if (this.reverse) Fdrive = -Math.min(Fdrive, this.mass * 3);
-    const Fbrake = brk * this.mass * 9.81 * 1.0 * Math.sign(v || 0.0001);
+    // ABS : freinage modulé près du blocage (adhérence selon surface/météo)
+    const absK = brk > 0.8 && Math.abs(v) > 3 ? 0.88 + Math.sin(performance.now() / 40) * 0.08 : 1;
+    const Fbrake = brk * this.mass * 9.81 * 1.0 * (this.gripMul || 1) * absK * Math.sign(v || 0.0001);
+    // frein moteur quand on lève le pied
+    const Feng = thr < 0.05 && !this.reverse ? Math.sign(v) * Math.min(Math.abs(v) * 60, this.mass * 0.9) * (6 - this.gear) / 5 : 0;
     const Fdrag = 0.42 * v * Math.abs(v) + 12 * v + (Math.abs(v) > 0.05 ? Math.sign(v) * this.mass * 0.11 : 0);
-    let ax = (Fdrive - Fbrake - Fdrag) / this.mass;
+    let ax = (Fdrive - Fbrake - Fdrag - Feng) / this.mass;
     if (Math.abs(v) < 0.4 && brk > 0 && !thr) { ax = 0; this.vz *= 0.8; }
     if (ctl.handbrake) ax -= Math.sign(v) * 4.5;
     // pneus latéraux (Pacejka simplifié)
@@ -62,11 +67,12 @@ export class Vehicle {
     const load = this.mass * 9.81 / 2;
     const tire = (a, mu) => -mu * load * Math.sin(1.45 * Math.atan(9.5 * a - 0.9 * (9.5 * a - Math.atan(9.5 * a))));
     const transfer = THREE.MathUtils.clamp(-ax * 0.04, -0.25, 0.25);
-    const muR = ctl.handbrake ? 0.45 : 1.0;
-    const FyF = tire(slipF, 1.05 * (1 + transfer)), FyR = tire(slipR, 1.0 * (1 - transfer) * muR);
+    const grip = (this.gripMul || 1);
+    const muR = (ctl.handbrake ? 0.45 : 1.0) * grip;
+    const FyF = tire(slipF, 1.05 * grip * (1 + transfer)), FyR = tire(slipR, 1.0 * (1 - transfer) * muR);
     const ay = (FyF * Math.cos(this.steer) + FyR) / this.mass - this.yawRate * v;
     const yawAcc = (FyF * this.cgF * Math.cos(this.steer) - FyR * this.cgR) / this.inertia;
-    this.vz += ax * dt; this.vx += ay * dt; this.yawRate += yawAcc * dt;
+    this.vz += ax * dt; this.vx += ay * dt; this.yawRate += yawAcc * dt; this._ax = ax; this._dt = dt;
     if (Math.abs(this.vz) < 0.3 && !thr) { this.vx *= 0.9; this.yawRate *= 0.9; }
     this.vx *= Math.pow(0.2, dt); // amortissement résiduel
     this.heading += this.yawRate * dt;
@@ -112,8 +118,17 @@ export class Vehicle {
     o.position.copy(this.pos);
     o.rotation.set(0, this.heading, 0);
     // roulis / tangage légers (transfert de charge)
-    o.rotateZ(THREE.MathUtils.clamp(this.vx * 0.012 + this.yawRate * this.vz * 0.004, -0.06, 0.06));
-    o.rotateX(THREE.MathUtils.clamp(-(ctl.throttle || 0) * 0.012 + (ctl.brake || 0) * 0.02 * Math.sign(this.vz), -0.03, 0.03));
+    // suspension : ressort-amortisseur sur le roulis (accélération latérale) et le tangage (accélération longitudinale)
+    const dt = this._dt || 0.016;
+    const latA = this.yawRate * this.vz, lonA = this._ax || 0;
+    const rollT = THREE.MathUtils.clamp(latA * 0.011, -0.075, 0.075), pitchT = THREE.MathUtils.clamp(-lonA * 0.006, -0.05, 0.05);
+    this.rollV += ((rollT - this.roll) * 90 - this.rollV * 11) * dt; this.roll += this.rollV * dt;
+    this.pitchV += ((pitchT - this.pitch) * 80 - this.pitchV * 10) * dt; this.pitch += this.pitchV * dt;
+    // bosses : passage de bordure / trottoir
+    const gh2 = groundHeight(this.pos.x, this.pos.z); if (Math.abs(gh2 - (this._lastGH || 0)) > 0.05) this.heaveV += 1.2 * Math.min(1, Math.abs(this.vz) / 8); this._lastGH = gh2;
+    this.heaveV += (-this.heave * 120 - this.heaveV * 9) * dt; this.heave += this.heaveV * dt;
+    o.position.y += this.heave * 0.05;
+    o.rotateZ(this.roll); o.rotateX(this.pitch);
     poseCar(this.car, { spin: this.spin, steer: this.steer, brake: (ctl.brake > 0.1 && !this.reverse) || (this.reverse && ctl.throttle > 0.1), reverse: this.reverse, head: this.headlights || 0 });
   }
 }

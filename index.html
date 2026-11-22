@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="src/ui.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Cdefs%3E%3ClinearGradient id=%22g%22 x2=%220%22 y2=%221%22%3E%3Cstop offset=%220%22 stop-color=%22%23ffe7a3%22/%3E%3Cstop offset=%22.6%22 stop-color=%22%23ff5e7e%22/%3E%3Cstop offset=%221%22 stop-color=%22%238a4dff%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2246%22 fill=%22url(%23g)%22/%3E%3Ctext x=%2250%22 y=%2266%22 font-family=%22Arial Black%22 font-size=%2244%22 text-anchor=%22middle%22 fill=%22%230b0d14%22%3ELW%3C/text%3E%3C/svg%3E">
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
@@ -18,14 +19,38 @@
 <canvas id="c"></canvas>
 
 <div id="loading">
-  <div class="brand">LIVING WORLD</div>
-  <div class="tag">Le monde vit sa vie. Vous vivez la vôtre.</div>
-  <div class="bar"><i id="loadbar"></i></div>
-  <div id="loadtxt">Initialisation…</div>
+  <div class="sky"></div>
+  <svg class="skyline far" viewBox="0 0 1600 300" preserveAspectRatio="none"><path d="M0 300V190h60v-40h40v60h50v-90h30v-30h20v30h30v120h60v-70h50v90h40v-150h20v-20h30v20h20v150h60v-60h70v80h40v-110h30v-40h40v40h30v110h50v-50h60v70h50v-130h20v-30h30v30h20v130h60v-80h50v60h40v-100h40v100h60v-60h40v80h50v-140h30v140h60v-70h40v70h50V300z"/></svg>
+  <svg class="skyline near" viewBox="0 0 1600 300" preserveAspectRatio="none"><path d="M0 300V230h80v-50h60v70h40v-110h20v-40h40v40h20v110h70v-60h60v80h50v-160h30v-30h30v30h20v160h80v-70h40v90h60v-120h50v120h70v-90h40v-40h40v40h20v90h60v-60h60v80h40v-170h20v-20h30v20h20v170h70v-80h60v60h40V300z"/><g class="wins"></g></svg>
+  <div class="ld-center">
+    <svg class="logo" viewBox="0 0 900 360" role="img" aria-label="Living World">
+      <defs>
+        <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe7a3"/><stop offset=".35" stop-color="#ffab5e"/><stop offset=".65" stop-color="#ff5e7e"/><stop offset="1" stop-color="#8a4dff"/></linearGradient>
+        <linearGradient id="chrome" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".48" stop-color="#e6e9f2"/><stop offset=".52" stop-color="#9aa3b8"/><stop offset="1" stop-color="#f4f6fb"/></linearGradient>
+        <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient>
+        <filter id="glow" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <clipPath id="stripes"><rect x="0" y="0" width="900" height="360"/></clipPath>
+        <mask id="cut"><rect width="900" height="360" fill="#fff"/><rect x="0" y="232" width="900" height="7" fill="#000"/><rect x="0" y="252" width="900" height="6" fill="#000"/><rect x="0" y="270" width="900" height="5" fill="#000"/></mask>
+      </defs>
+      <!-- soleil rayé derrière le monogramme -->
+      <g mask="url(#cut)" filter="url(#glow)"><circle cx="450" cy="170" r="128" fill="url(#sun)"/></g>
+      <!-- monogramme LW -->
+      <g font-family="Inter, Arial Black, sans-serif" font-weight="900" text-anchor="middle">
+        <text x="450" y="236" font-size="220" letter-spacing="-18" fill="#0b0d14" opacity=".55" transform="translate(6 8)">LW</text>
+        <text x="450" y="236" font-size="220" letter-spacing="-18" fill="url(#chrome)" stroke="#0b0d14" stroke-width="6" paint-order="stroke">LW</text>
+        <text x="450" y="236" font-size="220" letter-spacing="-18" fill="url(#gloss)">LW</text>
+        <text x="450" y="322" font-size="58" letter-spacing="26" fill="#fff">LIVING<tspan fill="url(#sun)"> WORLD</tspan></text>
+      </g>
+    </svg>
+    <div class="tag">Le monde vit sa vie. Vous vivez la vôtre.</div>
+    <div class="bar"><i id="loadbar"></i></div>
+    <div class="ld-row"><span id="loadtxt">Initialisation…</span><span id="loadpct">0 %</span></div>
+    <div id="tip"></div>
+  </div>
 </div>
 
 <div id="hud" hidden>
-  <div id="clockbox"><div id="clock">08:00</div><div id="day">Lundi · Jour 1</div><div id="money">1 250 €</div></div>
+  <div id="clockbox"><div id="clock">08:00</div><div id="day">Lundi · Jour 1</div><div id="weatherTag"></div><div id="money">1 250 €</div></div>
   <div id="needs"></div>
   <div id="mapbox"><canvas id="minimap"></canvas><div id="district"></div></div>
   <div id="stars"></div>
@@ -38,7 +63,7 @@
   <div id="prompt" hidden></div>
   <div id="toast"></div>
   <div id="speedo" hidden><b id="kmh">0</b><span>km/h</span><em id="gear">D</em></div>
-  <div id="help">ZQSD bouger · Maj courir · Espace sauter · E interagir · F voiture · C vue intérieure · P téléphone · G voler · 1-5 armes · clic droit viser · clic tirer · R recharger · V radio · Échap menu</div>
+  <div id="help">ZQSD bouger · Maj courir · Espace sauter · E interagir · F voiture · C vue intérieure · P téléphone · G voler · 1-5 armes · clic droit viser · clic tirer · R recharger · H saluer · V radio · Échap menu</div>
 </div>
 
 <div id="fade"></div>

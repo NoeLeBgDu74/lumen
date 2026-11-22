@@ -145,7 +145,7 @@ export class Population {
         case 'driving': if (p.car) p.pos.copy(p.car.pos); break;
         case 'talk': if (this.game.time > p.talkUntil) { p.state = p.resume; p.talkWith = null; } break;
         case 'outside': // présent à l'extérieur (parc, terrasse)
-          if (h >= p.until || (p.plan[0] && h >= p.plan[0].at)) { const n = p.plan.shift() || { go: p.home, why: 'rentrer chez soi', stay: 12, at: h }; this.startTrip(p, n); }
+          if (h >= p.until || (p.plan[0] && h >= p.plan[0].at) || (this.game.weather && this.game.weather.raining && Math.random() < 0.002)) { const n = p.plan.shift() || { go: p.home, why: 'rentrer chez soi', stay: 12, at: h }; this.startTrip(p, n); }
           break;
       }
     }
@@ -195,7 +195,7 @@ export class Population {
 
   walk(p, dt) {
     const path = p.path; if (!path) { p.state = 'inside'; return; }
-    let step = 1.35 * p.t.pace * dt;
+    let step = 1.35 * p.t.pace * dt * (this.game.weather && this.game.weather.raining ? 1.35 : 1);
     while (step > 0 && p.pi < path.length) {
       const tgt = path[p.pi];
       const dx = tgt.x - p.pos.x, dz = tgt.z - p.pos.z, d = Math.hypot(dx, dz);

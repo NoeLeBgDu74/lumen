@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { Character } from './chars.js';
 import { makeCar, poseCar, loadCarTemplate } from './cars.js';
 
-const WORLD_ID = 'livingworld-lumen-monde-public-v1';
+const NET_VERSION = 3; // à incrémenter quand le protocole change : les versions ne se mélangent pas
+const WORLD_ID = 'livingworld-lumen-monde-public-v' + NET_VERSION;
 const MAX = 16;
 const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }, { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' }] };
 const $ = (id) => document.getElementById(id);
@@ -63,7 +64,7 @@ export class Net {
         if (this.conns.size >= MAX - 1) { try { c.send({ t: 'full' }); } catch (e) {} setTimeout(() => c.close(), 300); return; }
         this.conns.set(c.peer, c);
         const roster = [this.hello(), ...Object.values(this.remotes).map(r => r.hello).filter(Boolean)];
-        c.send({ t: 'welcome', roster, hour: this.g.hour, day: this.g.day, lights: this.g.traffic.time });
+        c.send({ t: 'welcome', roster, hour: this.g.hour, day: this.g.day, lights: this.g.traffic.time, wx: this.g.weather && this.g.weather.target });
       });
       c.on('data', (m) => { if (!m || !m.t) return; m.from = c.peer; this.onData(m, c); this.relay(m, c.peer); });
       c.on('close', () => { this.conns.delete(c.peer); this.drop(c.peer); this.relay({ t: 'leave', id: c.peer }); this.status(); });
@@ -98,13 +99,18 @@ export class Net {
     const from = m.from || m.id;
     switch (m.t) {
       case 'welcome':
-        this.g.hour = m.hour; this.g.day = m.day; this.g.traffic.time = m.lights;
+        this.g.hour = m.hour; this.g.day = m.day; this.g.traffic.time = m.lights; if (m.wx && this.g.weather) this.g.weather.set(m.wx);
+        this.g.traffic.mirror = true; // la circulation de l'hôte fait foi
         for (const h of m.roster || []) this.addPlayer(h);
         this.status(); this.voiceSync(); break;
       case 'full': this.g.life.notify('Le monde est complet (16 joueurs)', 'warn'); this.stop(); break;
       case 'hello': this.addPlayer(Object.assign({}, m, { id: from })); this.status(); this.voiceSync(); break;
       case 'leave': this.drop(m.id); this.status(); break;
-      case 'clock': if (!this.host) { this.g.hour = m.hour; this.g.day = m.day; this.g.traffic.time = m.lights; } break;
+      case 'clock': if (!this.host) { this.g.hour = m.hour; this.g.day = m.day; this.g.traffic.time = m.lights; if (m.wx && this.g.weather && this.g.weather.target !== m.wx) this.g.weather.set(m.wx); } break;
+      case 'cars': if (!this.host) this.applyCars(m.a); break;
+      case 'take': { const ai = this.carById(m.id); if (ai && ai !== this.g.vehAI) { if (ai.spot) { ai.spot.taken = null; ai.spot = null; } ai.state = 'remote'; ai.remoteBy = from; } } break;
+      case 'drop': { const ai = this.carById(m.id); if (ai && ai.state === 'remote') { ai.state = 'parked'; ai.pos.set(m.x, 0, m.z); ai.heading = m.h; ai.net = null; this.g.traffic.sync(ai); } } break;
+      case 'emote': { const r = this.remotes[from]; if (r) { r.emoteUntil = performance.now() + 2500; r.emote = m.e; } } break;
       case 's': this.applyState(from, m); break;
       case 'chat': this.pushChat(m.name + ' : ' + m.text); break;
       case 'pm': if (m.to === this.myId) { this.pms.push({ from: from, name: m.name, text: m.text, me: false }); this.g.life.notify('📩 ' + m.name + ' : ' + m.text, 'ok'); this.g.onPM && this.g.onPM(from); } break;
@@ -129,7 +135,12 @@ export class Net {
     if (!r) return;
     r.target = new THREE.Vector3(m.x, m.y, m.z); r.tyaw = m.yaw; r.anim = m.anim; r.wanted = m.w; r.visible = m.v !== 0;
     if (r.fresh) { r.pos.copy(r.target); r.yaw = m.yaw; r.fresh = false; r.char.obj.visible = true; }
-    if (m.car) {
+    if (m.car && m.car.tid !== undefined && this.carById(m.car.tid)) {
+      // le joueur conduit une voiture de la ville : on pilote cette même voiture
+      const ai = this.carById(m.car.tid); if (ai.spot) { ai.spot.taken = null; ai.spot = null; }
+      ai.state = 'remote'; ai.remoteBy = id; r.carState = m.car; r.cityCar = ai;
+      if (r.car) { this.g.R.scene.remove(r.car.obj); r.car = null; r.carId = null; }
+    } else if (m.car) {
       const key = m.car.id + m.car.paint;
       if (r.carId !== key && !r.loading) {
         r.loading = true;
@@ -213,13 +224,15 @@ export class Net {
     if (!this.connected) return;
     const g = this.g;
     this.sendT += dt; this.clockT = (this.clockT || 0) + dt;
-    if (this.host && this.clockT > 5) { this.clockT = 0; this.send({ t: 'clock', hour: g.hour, day: g.day, lights: g.traffic.time }); }
+    if (this.host && this.clockT > 5) { this.clockT = 0; this.send({ t: 'clock', hour: g.hour, day: g.day, lights: g.traffic.time, wx: g.weather && g.weather.target }); }
+    this.carsT = (this.carsT || 0) + dt;
+    if (this.host && this.conns.size && this.carsT > 0.15) { this.carsT = 0; this.sendCars(); }
     if (this.sendT > 0.08) {
       this.sendT = 0;
       const pl = g.player, v = g.veh, o = pl.char.obj;
       const m = { t: 's', id: this.myId, x: o.position.x, y: o.position.y, z: o.position.z, yaw: o.rotation.y, anim: pl.char.cur ? pl.char.cur.getClip().name : 'idle', w: g.police.wanted, v: o.visible || v ? 1 : 0 };
       if (!this._helloSent || this._helloT++ > 50) { m.hello = this.hello(); this._helloSent = true; this._helloT = 0; }
-      if (v) m.car = { id: v.car.tpl.spec.id, paint: v.car.paint ? '#' + v.car.paint.color.getHexString() : '#ffffff', x: v.pos.x, z: v.pos.z, h: v.heading, st: v.steer, sp: v.spin, b: v.brake ? 1 : 0 };
+      if (v) m.car = { tid: g.vehAI && g.vehAI.id, id: v.car.tpl.spec.id, paint: v.car.paint ? '#' + v.car.paint.color.getHexString() : '#ffffff', x: v.pos.x, z: v.pos.z, h: v.heading, st: v.steer, sp: v.spin, b: v.brake ? 1 : 0 };
       this.send(m);
     }
     const cam = g.R.camera;
@@ -229,6 +242,15 @@ export class Net {
       r.char.obj.position.copy(r.pos); r.char.obj.rotation.y = r.yaw;
       if (r.anim) r.char.play(r.anim, 0.25);
       r.char.update(dt, r.pos.distanceTo(cam.position));
+      if (r.cityCar && r.carState && r.cityCar.state === 'remote') {
+        const s = r.carState, ai = r.cityCar;
+        ai.pos.x += (s.x - ai.pos.x) * Math.min(1, dt * 12); ai.pos.z += (s.z - ai.pos.z) * Math.min(1, dt * 12);
+        let dh = s.h - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); ai.heading += dh * Math.min(1, dt * 12);
+        ai.car.obj.position.set(ai.pos.x, 0, ai.pos.z); ai.car.obj.rotation.set(0, ai.heading, 0); ai.car.obj.visible = true;
+        poseCar(ai.car, { spin: s.sp, steer: s.st, brake: !!s.b, head: g.sky.night > 0.45 ? 1 : 0 });
+      }
+      if (!r.carState) r.cityCar = null;
+      if (r.emoteUntil && performance.now() < r.emoteUntil) r.char.play(r.emote || 'wave', 0.2);
       if (r.car && r.carState) {
         const s = r.carState, o = r.car.obj;
         o.position.lerp(new THREE.Vector3(s.x, 0, s.z), Math.min(1, dt * 12));
@@ -241,6 +263,31 @@ export class Net {
       if (vis) { r.tag.style.left = ((p.x + 1) / 2 * innerWidth) + 'px'; r.tag.style.top = ((1 - p.y) / 2 * innerHeight) + 'px'; r.tag.textContent = r.name + (r.wanted ? ' ' + '★'.repeat(r.wanted) : ''); }
     }
   }
+  carById(id) { return this.g.traffic.cars.find(c => c.id === id); }
+  // Hôte : diffuse l'état des voitures (circulation, voitures garées qui changent, police, voleurs).
+  sendCars() {
+    const a = [], T = this.g.traffic;
+    for (const ai of T.cars) {
+      if (ai.state === 'player' && ai === this.g.vehAI) continue;
+      const moving = ai.state !== 'parked' && ai.state !== 'remote';
+      if (!moving && ai._netParked) continue;
+      ai._netParked = !moving;
+      const paint = ai.car.paint ? ai.car.paint.color.getHexString() : 'ffffff';
+      a.push([ai.id, ai.tpl.spec.id, paint, moving ? 1 : 0, +ai.pos.x.toFixed(2), +ai.pos.z.toFixed(2), +ai.heading.toFixed(3), +(ai.v || 0).toFixed(1), +(ai.steer || 0).toFixed(2), (ai.brake ? 1 : 0) | (ai.blink ? 2 : 0)]);
+    }
+    if (a.length) this.send({ t: 'cars', a });
+  }
+  async applyCars(a) {
+    const T = this.g.traffic;
+    for (const e of a) {
+      let ai = this.carById(e[0]);
+      if (!ai) { ai = T.newCar(e[1], '#' + e[2], e[0]); ai.state = 'drive'; ai.pos.set(e[4], 0, e[5]); ai.heading = e[6]; }
+      if (ai === this.g.vehAI || ai.state === 'remote') continue;
+      if (e[3]) { ai.state = 'drive'; ai.net = { x: e[4], z: e[5], h: e[6], v: e[7], st: e[8], fl: e[9] }; }
+      else { ai.state = 'parked'; ai.net = null; ai.pos.set(e[4], 0, e[5]); ai.heading = e[6]; T.sync(ai); }
+    }
+  }
+  emote(e) { this.send({ t: 'emote', e }); }
   // Autres joueurs comme obstacles (collisions).
   circles(pos) {
     const out = [];
