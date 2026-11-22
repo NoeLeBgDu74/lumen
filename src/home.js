@@ -125,12 +125,17 @@ export class HomeInterior {
     if (s.act === 'tv') await A.run({ to: new THREE.Vector3(O.x - 2.6, 0, O.z + 1.25), face: Math.PI, pose: 'relax', offsetY: -0.48, dur: 2.2 });
     if (s.act === 'cook') await A.run({ to: new THREE.Vector3(O.x - W_ / 2 + 1.7, 0, O.z + D_ / 2 - 0.95), face: 0, arms: 'reach', dur: 2.5 });
     if (s.act === 'shower') {
-      // vitre embuée + vapeur : on ne voit plus le personnage pendant la douche
-      await A.run({ to: new THREE.Vector3(O.x + W_ / 2 - 1.2, 0, O.z - D_ / 2 + 0.8), face: Math.PI, arms: 'handsHead', dur: 3.2, onStart: () => {
-        this.showerGlass.opacity = 0.93; this.showerGlass.roughness = 0.9; g.player.char.obj.visible = false;
-        this.steam.children.forEach((m, i) => { m.material.opacity = 0.35; m.userData.v = 0.2 + Math.random() * 0.3; });
+      // vitre embuée (silhouette floue) + vapeur ; tenue « torse nu, en caleçon » le temps de la douche
+      const ch = g.player.char, saved = [];
+      const undress = () => ch.model.traverse(o => { if (!o.isMesh || !/Outfit|Headwear/.test(o.material.name)) return; saved.push([o, o.material]);
+        const m = new THREE.MeshStandardMaterial({ color: /Bottom/.test(o.material.name) ? 0x24262b : 0xc98f6c, roughness: 0.6 });
+        if (/Headwear/.test(o.material.name)) o.visible = false; else o.material = m; });
+      await A.run({ to: new THREE.Vector3(O.x + W_ / 2 - 1.2, 0, O.z - D_ / 2 + 0.8), face: Math.PI, arms: 'handsHead', dur: 4, camDist: 3.4, onStart: () => {
+        undress(); this.showerGlass.opacity = 0.72; this.showerGlass.roughness = 1;
+        this.steam.children.forEach(m => { m.material.opacity = 0.32; });
       } });
-      g.player.char.obj.visible = true; this.showerGlass.opacity = 0.25; this.showerGlass.roughness = 0.05;
+      for (const [o, m] of saved) { o.material = m; o.visible = true; }
+      this.showerGlass.opacity = 0.25; this.showerGlass.roughness = 0.05;
       setTimeout(() => this.steam.children.forEach(m => m.material.opacity = 0), 2500);
     }
     if (s.act === 'wardrobe') await A.run({ to: s.p.clone(), face: -Math.PI / 2, arms: 'reach', dur: 0.8 });

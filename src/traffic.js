@@ -98,7 +98,7 @@ export class Traffic {
     if (this.mirror) { this.updateMirror(dt, ctx); return; }
     const obstacles = ctx.obstacles || [];
     for (const ai of this.cars) {
-      if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police' || ai.state === 'jacked' || ai.state === 'broken' || ai.state === 'fire') continue;
+      if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police' || ai.state === 'jacked' || ai.state === 'broken' || ai.state === 'fire' || ai.state === 'taxi') continue;
       this.step(ai, dt, obstacles, ctx);
     }
   }

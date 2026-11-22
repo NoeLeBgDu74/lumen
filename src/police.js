@@ -238,7 +238,10 @@ export function steerDrive(g, ai, dest, dt, { vmax = 20, direct = false, stopDis
   if (!direct) {
     ai._rt = (ai._rt || 0) - dt;
     if (ai._rt <= 0 || !ai._route) {
-      ai._rt = 2.5; const a = W.nearestNode(ai.pos.x, ai.pos.z), b = W.nearestNode(dest.x, dest.z);
+      ai._rt = 2.5;
+      // départ : le carrefour situé devant le véhicule (sinon on repartirait en arrière après chaque carrefour)
+      const fx = Math.sin(ai.heading), fz = Math.cos(ai.heading);
+      const a = W.nearestNode(ai.pos.x, ai.pos.z, n => (n.x - ai.pos.x) * fx + (n.z - ai.pos.z) * fz > 4), b = W.nearestNode(dest.x, dest.z);
       ai._route = (W.route(a, b) || []).map(n => new THREE.Vector3(W.nodes[n].x, 0, W.nodes[n].z));
     }
     while (ai._route.length && ai.pos.distanceTo(ai._route[0]) < 10) ai._route.shift();
