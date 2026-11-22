@@ -16,7 +16,7 @@ export class Player {
     const [mx, my, wh] = input.consumeMouse();
     this.camYaw -= mx * 0.0024; this.camPitch = THREE.MathUtils.clamp(this.camPitch + my * 0.002, -0.35, 1.1);
     this.camDist = THREE.MathUtils.clamp(this.camDist + wh * 0.5, 2.2, 9);
-    if (this.mode !== 'foot') return;
+    if (this.mode !== 'foot') return; // (passager, voiture, action : gérés ailleurs)
     const adm = window.game && window.game.admin;
     if (adm && adm.fly) { this.char.obj.position.copy(this.pos); this.char.play('idle'); this.char.update(dt); return; }
     const { f, s } = input.move();

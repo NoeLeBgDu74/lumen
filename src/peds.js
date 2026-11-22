@@ -15,7 +15,7 @@ export class Peds {
   spawn(near) {
     // un point de trottoir aléatoire à 40-90 m du joueur
     for (let k = 0; k < 8; k++) {
-      const a = Math.random() * 6.283, d = 40 + Math.random() * 50;
+      const a = Math.random() * 6.283, d = 22 + Math.random() * 55;
       const x = near.x + Math.cos(a) * d, z = near.z + Math.sin(a) * d;
       const i = Math.round((x - W.OX) / W.P), j = Math.round((z - W.OZ) / W.P);
       if (i < 0 || j < 0 || i > W.NX || j > W.NZ) continue;

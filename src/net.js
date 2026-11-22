@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Character } from './chars.js';
 import { makeCar, poseCar, loadCarTemplate } from './cars.js';
 
-const NET_VERSION = 3; // à incrémenter quand le protocole change : les versions ne se mélangent pas
+const NET_VERSION = 4; // à incrémenter quand le protocole change : les versions ne se mélangent pas
 const WORLD_ID = 'livingworld-lumen-monde-public-v' + NET_VERSION;
 const MAX = 16;
 const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }, { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' }] };
@@ -110,6 +110,7 @@ export class Net {
       case 'cars': if (!this.host) this.applyCars(m.a); break;
       case 'take': { const ai = this.carById(m.id); if (ai && ai !== this.g.vehAI) { if (ai.spot) { ai.spot.taken = null; ai.spot = null; } ai.state = 'remote'; ai.remoteBy = from; } } break;
       case 'drop': { const ai = this.carById(m.id); if (ai && ai.state === 'remote') { ai.state = 'parked'; ai.pos.set(m.x, 0, m.z); ai.heading = m.h; ai.net = null; this.g.traffic.sync(ai); } } break;
+      case 'ping': { this.pings = this.pings || []; this.pings.push({ pos: new THREE.Vector3(m.x, 0, m.z), name: m.name, t: performance.now() }); this.g.life.notify('📍 ' + m.name + ' a marqué un point'); this.showPing(m.x, m.z); } break;
       case 'emote': { const r = this.remotes[from]; if (r) { r.emoteUntil = performance.now() + 2500; r.emote = m.e; } } break;
       case 's': this.applyState(from, m); break;
       case 'chat': this.pushChat(m.name + ' : ' + m.text); break;
@@ -289,6 +290,13 @@ export class Net {
     }
   }
   emote(e) { this.send({ t: 'emote', e }); }
+  ping(x, z) { this.send({ t: 'ping', x, z, name: this.g.profile.first }); this.pings = this.pings || []; this.pings.push({ pos: new THREE.Vector3(x, 0, z), name: 'Moi', t: performance.now() }); this.showPing(x, z); }
+  showPing(x, z) {
+    const g = this.g; if (!this.pingMesh) { this.pingMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 60, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0xc77dff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false })); g.R.scene.add(this.pingMesh); }
+    this.pingMesh.position.set(x, 30, z); this.pingMesh.visible = true; clearTimeout(this._pt); this._pt = setTimeout(() => { this.pingMesh.visible = false; }, 30000);
+  }
+  // voiture d'un autre joueur à proximité (pour monter en passager)
+  nearRemoteCar(pos, r = 4) { for (const id in this.remotes) { const R = this.remotes[id]; const o = R.cityCar ? R.cityCar.car.obj : R.car ? R.car.obj : null; if (o && R.carState && o.position.distanceTo(pos) < r) return { R, obj: o, car: R.cityCar ? R.cityCar.car : R.car }; } return null; }
   // Autres joueurs comme obstacles (collisions).
   circles(pos) {
     const out = [];

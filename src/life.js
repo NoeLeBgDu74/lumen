@@ -132,6 +132,8 @@ export class Minimap {
     if (se) { const [a, b] = pt(se.pos.x, se.pos.z); x.fillStyle = 'rgba(255,60,60,.16)'; x.strokeStyle = 'rgba(255,80,80,.6)'; x.lineWidth = 2; x.beginPath(); x.arc(a, b, se.r * sc, 0, 7); x.fill(); x.stroke(); }
     // police
     for (const c of (g.police && g.police.units) || []) { const [a, b] = pt(c.ai.pos.x, c.ai.pos.z); x.fillStyle = (Math.floor(g.time * 4) % 2) ? '#ff3b3b' : '#3b7bff'; x.beginPath(); x.arc(a, b, 4 * devicePixelRatio, 0, 7); x.fill(); }
+    // points marqués par les joueurs
+    for (const pg of (g.net && g.net.pings) || []) { if (performance.now() - pg.t > 30000) continue; const [a, b] = pt(pg.pos.x, pg.pos.z); x.strokeStyle = '#c77dff'; x.lineWidth = 3; x.beginPath(); x.arc(a, b, 7 * devicePixelRatio, 0, 7); x.stroke(); }
     // autres joueurs
     for (const r of (g.net && g.net.remotes ? Object.values(g.net.remotes) : [])) { const [a, b] = pt(r.pos.x, r.pos.z); x.fillStyle = '#c77dff'; x.beginPath(); x.arc(a, b, 5 * devicePixelRatio, 0, 7); x.fill(); }
     x.restore();

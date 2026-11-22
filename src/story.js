@@ -38,8 +38,8 @@ export class Story {
   }
   cleanup() { for (const a of this.actors) this.g.R.scene.remove(a.obj); this.actors = []; this.cineOff(); }
   async title(big, small, ms) { const c = $('chap'); c.innerHTML = `<b>${big}</b><span>${small}</span>`; c.classList.add('on'); await wait(ms); c.classList.remove('on'); }
-  cineOn() { this.cine = true; this.el.classList.add('on'); this.g.input.enabled = false; this.g.cineCam = true; document.exitPointerLock?.(); }
-  cineOff() { this.cine = false; this.el.classList.remove('on'); this.g.input.enabled = true; this.g.cineCam = false; $('sub').textContent = ''; }
+  cineOn() { this.cine = true; this.el.classList.add('on'); document.body.classList.add('cinema'); this.g.input.enabled = false; this.g.cineCam = true; document.exitPointerLock?.(); }
+  cineOff() { this.cine = false; this.el.classList.remove('on'); document.body.classList.remove('cinema'); this.g.input.enabled = true; this.g.cineCam = false; $('sub').textContent = ''; }
   // plan de caméra : orbite lente autour d'un point
   shot(target, dist = 4, height = 1.6, yaw = 0, drift = 0.06) { this.camShot = { target: target.clone(), dist, height, yaw, drift, t: 0 }; }
   async say(who, text, actor, ms) {

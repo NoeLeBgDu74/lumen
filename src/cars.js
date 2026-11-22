@@ -87,7 +87,7 @@ export async function loadCarTemplate(id) {
       if (/Bodymat/i.test(mat.name)) m.userData.paint = true;
       if (/Transperent|Transparent|Glass/i.test(mat.name) && mat.transparent !== undefined && /Transp/i.test(mat.name)) m.userData.glass = true;
       const n = m.name + ' ' + (m.parent ? m.parent.name : '');
-      if (/Head_?lights?/i.test(n) && !/Glass/i.test(n)) m.userData.light = 'head';
+      if (/Head_?lights?/i.test(n) && !/Head_?lights?_Glass/i.test(n)) m.userData.light = 'head';
       else if (/Brakelights/i.test(n)) m.userData.light = 'brake';
       else if (/Reverse/i.test(n)) m.userData.light = 'reverse';
       else if (/Blinkers/i.test(n)) m.userData.light = 'blink';
@@ -147,6 +147,10 @@ export function makeCar(tpl, paint) {
   });
   void paintMat;
   car.paint = pm;
+  // halos lumineux (phares blancs à l'avant, feux rouges à l'arrière) visibles de loin la nuit
+  const s = tpl.size, mkGlow = (col, x, z, sc) => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: col, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false })); sp.position.set(x, 0.72, z); sp.scale.setScalar(sc); root.add(sp); return sp.material; };
+  car.glowF = [mkGlow(0xfff2d6, s.x / 2 - 0.38, s.z / 2 + 0.05, 1.1), mkGlow(0xfff2d6, -s.x / 2 + 0.38, s.z / 2 + 0.05, 1.1)];
+  car.glowR = [mkGlow(0xff2a1a, s.x / 2 - 0.35, -s.z / 2 - 0.05, 0.7), mkGlow(0xff2a1a, -s.x / 2 + 0.35, -s.z / 2 - 0.05, 0.7)];
   car.details = []; root.traverse(o => { if (o.isMesh && o.userData.detail) car.details.push(o); });
   car.lod = 0;
   root.traverse(o => {
@@ -177,8 +181,16 @@ export function poseCar(car, { spin = 0, steer = 0, brake = false, reverse = fal
     const a = car.steeringWheel.userData.axis; if (a) { SW_TMP.fromArray(a); car.steeringWheel.quaternion.setFromAxisAngle(SW_TMP, -steer * 6); }
   }
   for (const m of car.lights.head) m.emissiveIntensity = head * 4;
+  if (car.glowF) { for (const m of car.glowF) m.opacity = head * 0.9; for (const m of car.glowR) m.opacity = brake ? 0.95 : head * 0.45; }
   for (const m of car.lights.brake) m.emissiveIntensity = brake ? 6 : head * 1.6;
   for (const m of car.lights.reverse) m.emissiveIntensity = reverse ? 4 : 0;
   for (const m of car.lights.blink) m.emissiveIntensity = blink;
 }
 const SW_TMP = new THREE.Vector3();
+let _glow = null;
+function glowTex() {
+  if (_glow) return _glow;
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.2, 'rgba(255,255,255,.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64); _glow = new THREE.CanvasTexture(c); return _glow;
+}
