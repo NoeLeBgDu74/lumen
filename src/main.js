@@ -475,7 +475,7 @@ function interactPrompt() {
   if (!game.veh && !game.seq) { const pd = game.peds.nearest(game.player.pos); if (pd) { el.hidden = false; el.innerHTML = '<kbd>G</kbd>Voler ce passant'; return; } }
   if (game.taxi && game.taxi.phase === 'waiting' && game.player.pos.distanceTo(game.taxi.ai.pos) < 6) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans le taxi'; return; }
   if (!game.veh && !game.seq && !game.passenger) { const rc = game.net.nearRemoteCar(game.player.pos); if (rc && !nearestCar(2.5)) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter avec ' + rc.R.name; return; } }
-  if (!game.veh && !game.seq) { const pl = game.places.nearest(game.player.pos); if (pl) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>' + game.places.label(pl); return; } }
+  if (!game.veh && !game.seq) { const pl = game.places.nearest(game.player.pos); if (pl) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>' + game.places.label(pl) + (game.places.isOpen(pl) ? '' : ' <span style="color:#ff7b6b">· fermé</span>'); return; } }
   if (game.veh && nearPump()) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Faire le plein'; return; }
   if (!game.veh) { const ai = nearestCar(); if (ai) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans ' + ai.tpl.spec.name; return; } }
   el.hidden = true;

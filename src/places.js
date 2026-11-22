@@ -38,7 +38,16 @@ export class Places {
     if (p.type === 'house') return L.home && L.home.id === p.id ? 'Rentrer chez moi' : (p.name + ' · à vendre');
     return p.name;
   }
+  hours(p) {
+    return { bakery: [6, 20], supermarket: [8, 21], grocery: [8, 21], restaurant: [11, 23.5], cafe: [7, 22], bank: [9, 17], pharmacy: [9, 20], dealership: [9, 19], driving_school: [9, 18], gunshop: [10, 19], shop: [9, 19.5], garage: [8, 19] }[p.type] || null;
+  }
+  isOpen(p) { const h = this.hours(p); if (!h) return true; const t = this.g.hour; return t >= h[0] && t < h[1]; }
   open(p) {
+    if (!this.isOpen(p)) {
+      const h = this.hours(p), f = (x) => Math.floor(x) + 'h' + (x % 1 ? '30' : '');
+      return this.g.life.panel(p.name + ' · FERMÉ', `<p>🔒 Ouvert de ${f(h[0])} à ${f(h[1])}. Revenez plus tard.</p>`, [
+        { label: 'Forcer l’entrée (cambriolage) ⚠', run: () => { this.burgle(p); return false; } }]);
+    }
     const fn = this['_' + p.type] || this._shop;
     fn.call(this, p);
   }

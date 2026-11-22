@@ -58,6 +58,11 @@ export class Life {
       this.s.rentNext = g.day + 7;
       if (!this.money(-this.s.home.rent * 7 / 30 * 4.3 / 4.3, 'loyer de la semaine')) { this.s.rentDebt = (this.s.rentDebt || 0) + 1; if (this.s.rentDebt >= 2) { this.notify('Expulsé·e pour loyers impayés', 'warn'); this.s.home = null; } }
     }
+    // factures de la semaine : forfait téléphone + assurance de chaque voiture
+    if (g.day >= (this.s.billsNext || 0) && g.hour > 9) {
+      const first = !this.s.billsNext; this.s.billsNext = g.day + 7;
+      if (!first) { const ins = (this.s.cars || []).length * 35; this.money(-(19 + ins), `factures (téléphone 19 €${ins ? ', assurance ' + ins + ' €' : ''})`); }
+    }
     if (g.time - this.lastSave > 20) { this.lastSave = g.time; this.save(); }
   }
   feed(v) { this.s.needs.faim = Math.min(100, this.s.needs.faim + v); }

@@ -24,7 +24,15 @@ export class Peds {
       const female = Math.random() < 0.5;
       const ch = this.acquire(female);
       const ped = { ch, female, pos: p, i, j, qx, qz, target: null, heading: 0, speed: 1.15 + Math.random() * 0.5, state: 'walk', t: 0, money: 10 + Math.floor(Math.random() * 90) };
-      this.pick(ped); this.list.push(ped); return ped;
+      this.pick(ped); this.list.push(ped);
+      // parfois un petit groupe arrêté qui discute (2 personnes face à face)
+      if (Math.random() < 0.3 && this.list.length < this.max - 1) {
+        const f2 = Math.random() < 0.5, ch2 = this.acquire(f2), off = new THREE.Vector3(0.9, 0, 0.4);
+        const b = { ch: ch2, female: f2, pos: p.clone().add(off), i, j, qx, qz, target: null, heading: 0, speed: 1.2, state: 'chat', t: 0, money: 10 + Math.floor(Math.random() * 90) };
+        ped.state = 'chat'; ped.chatUntil = b.chatUntil = 25 + Math.random() * 40;
+        ped.heading = Math.atan2(off.x, off.z); b.heading = ped.heading + Math.PI; this.list.push(b);
+      }
+      return ped;
     }
   }
   // prochain coin : le long du trottoir (même côté) ou traversée au passage piéton
@@ -82,6 +90,10 @@ export class Peds {
         if (d < 0.3) this.pick(p);
         else { const st = Math.min(d, p.speed * dt); p.pos.addScaledVector(to.normalize(), st); const h = Math.atan2(to.x, to.z); let dh = h - p.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); p.heading += dh * Math.min(1, dt * 8); }
         p.ch.play('walk', 0.3, p.speed / 1.4);
+      } else if (p.state === 'chat') {
+        p.ch.play(p.ch.has('talk') && Math.sin(p.t * 0.7 + p.speed * 9) > 0 ? 'talk' : 'idle', 0.4);
+        if (p.t > p.chatUntil) { p.state = 'walk'; this.pick(p); }
+        if (g.veh && g.veh.kmh > 10 && p.pos.distanceTo(g.veh.pos) < 6) { p.state = 'walk'; this.pick(p); }
       } else if (p.state === 'handsup') {
         if (p.t > 1.6) { p.ch.overlay(null); p.state = 'flee'; p.t = 0; p.ch.play('run', 0.2); g.audio && g.audio.scream(p.female, 0.15); }
       } else if (p.state === 'flee') {
