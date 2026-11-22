@@ -5,6 +5,16 @@ import { glb, pbr } from './assets.js';
 import { StaticWorld } from './physics.js';
 
 const ORIGIN = new THREE.Vector3(0, 0, 3200); // loin de la ville
+const DECOR = [
+  { id: 'plant1', name: 'Grande plante', model: 'potted_plant_02', price: 85, x: 4.6, z: -3.4 },
+  { id: 'plant2', name: 'Plante d’angle', model: 'potted_plant_01', price: 60, x: -5.0, z: 3.4 },
+  { id: 'chair2', name: 'Second fauteuil', model: 'modern_arm_chair_01', price: 340, x: -4.2, z: 0.6, ry: Math.PI / 2 + 0.3 },
+  { id: 'shelf2', name: 'Étagère bibliothèque', model: 'Shelf_01', price: 220, x: 5.2, z: 0.2, ry: -Math.PI / 2 },
+  { id: 'lamp', name: 'Lampe de bureau', model: 'desk_lamp_arm_01', price: 75, x: 1.0, z: 2.6, y: 0.78 },
+  { id: 'clock', name: 'Horloge murale', model: 'wall_clock', price: 45, x: -1.2, z: -3.9, y: 1.9 },
+  { id: 'chess', name: 'Jeu d’échecs', model: 'chess_set', price: 65, x: -2.6, z: 0.4, y: 0.45, s: 0.8 },
+  { id: 'boombox', name: 'Chaîne hi-fi rétro', model: 'boombox', price: 150, x: -5.1, z: -2.6, y: 0.0 },
+];
 const W_ = 11, D_ = 8, H_ = 2.8;
 
 export class HomeInterior {
@@ -21,6 +31,7 @@ export class HomeInterior {
     plane(W_, D_, floor, -Math.PI / 2, new THREE.Vector3(0, 0, 0));
     plane(W_, D_, new THREE.MeshStandardMaterial({ color: 0xf4f2ee, roughness: 0.9 }), Math.PI / 2, new THREE.Vector3(0, H_, 0));
     plane(3, 2.6, tile, -Math.PI / 2, new THREE.Vector3(W_ / 2 - 1.5, 0.005, -D_ / 2 + 1.3));
+    this.wallMat = wall; this.placed = new Set();
     const wallM = (w, pos, ry) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, H_), wall); m.position.copy(pos); m.rotation.y = ry; uvScale(m.geometry, w, H_); m.receiveShadow = true; G.add(m); };
     wallM(W_, new THREE.Vector3(0, H_ / 2, -D_ / 2), 0); wallM(W_, new THREE.Vector3(0, H_ / 2, D_ / 2), Math.PI);
     wallM(D_, new THREE.Vector3(-W_ / 2, H_ / 2, 0), Math.PI / 2); wallM(D_, new THREE.Vector3(W_ / 2, H_ / 2, 0), -Math.PI / 2);
@@ -69,7 +80,7 @@ export class HomeInterior {
     // points d'interaction
     const S = (x, z, label, act) => this.spots.push({ p: new THREE.Vector3(O.x + x, 0, O.z + z), label, act });
     S(3.0, 0.5, 'Dormir', 'sleep'); S(-2.6, 0.9, 'Regarder la télé', 'tv'); S(-W_ / 2 + 1.7, D_ / 2 - 1.0, 'Cuisiner et manger', 'cook');
-    S(W_ / 2 - 1.2, -D_ / 2 + 1.9, 'Prendre une douche', 'shower'); S(-W_ / 2 + 0.8, -1.6, 'Dressing : changer de tenue', 'wardrobe'); S(0, -D_ / 2 + 0.9, 'Sortir', 'exit');
+    S(W_ / 2 - 1.2, -D_ / 2 + 1.9, 'Prendre une douche', 'shower'); S(-W_ / 2 + 0.8, -1.6, 'Dressing : changer de tenue', 'wardrobe'); S(1.6, -1.4, 'Décorer mon logement', 'decor'); S(0, -D_ / 2 + 0.9, 'Sortir', 'exit');
     const lk = { p: new THREE.Vector3(O.x + 0.9, 0, O.z - D_ / 2 + 0.9), label: 'Verrouiller', act: 'lock', labelFn: () => (this.g.life.s.homeLocked ? '🔒 Déverrouiller la porte' : '🔓 Verrouiller la porte à clé') }; this.spots.push(lk);
     this.door = new THREE.Vector3(O.x, 0, O.z - D_ / 2 + 0.9);
     // porte d'entrée battante (charnière à gauche) + poignée + serrure
@@ -92,6 +103,7 @@ export class HomeInterior {
     this.group.visible = true; this.inside = true; g.interiorRoom = true;
     g.player.place(this.door.x, this.door.z + 0.5, 0); g.player.camYaw = Math.PI; g.player.camDist = 2.6;
     this.winMat.color.setHSL(0.6, 0.4, 0.25 + (1 - g.sky.night) * 0.6);
+    this.applyDecor();
     this.doorAngle = this.doorTarget = -1.45; this.doorPivot.rotation.y = this.doorAngle;
     g.player.place(this.door.x, this.door.z - 0.6, 0);
     await wait(300); f.style.opacity = 0;
@@ -103,6 +115,27 @@ export class HomeInterior {
     g.player.world = this.cityWorld; g.world = this.cityWorld; this.group.visible = false; this.inside = false; g.interiorRoom = false; this.doorTarget = this.doorAngle = 0;
     g.player.place(this.outside.x, this.outside.z, this.outsideYaw + Math.PI); g.player.camDist = 4.2;
     await wait(300); f.style.opacity = 0;
+  }
+  // ---------- décoration : couleur des murs + objets achetés (sauvegardés) ----------
+  applyDecor() {
+    const st = this.g.life.s; st.decor = st.decor || { wall: null, items: [] };
+    if (this.wallMat && st.decor.wall) this.wallMat.color.set(st.decor.wall);
+    for (const it of st.decor.items) if (!this.placed.has(it)) this.placeItem(it);
+  }
+  async placeItem(it) {
+    this.placed.add(it); const D = DECOR.find(d => d.id === it); if (!D) return;
+    try {
+      const g = await glb('assets/props/' + D.model + '.glb'); const o = g.scene.clone(true); o.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
+      const b = new THREE.Box3().setFromObject(o); const s = D.s || 1; o.scale.setScalar(s); o.position.set(D.x, -b.min.y * s + (D.y || 0), D.z); o.rotation.y = D.ry || 0; this.group.add(o);
+    } catch (e) {}
+  }
+  decorMenu() {
+    const L = this.g.life, st = L.s; st.decor = st.decor || { wall: null, items: [] };
+    const walls = [['Blanc cassé', '#f1ece4'], ['Bleu nuit', '#3b4f6b'], ['Vert sauge', '#9fb59a'], ['Terracotta', '#c98a6c'], ['Gris anthracite', '#55595f'], ['Rose poudré', '#e5c4c0']];
+    L.panel('Décorer mon logement', '<p>Peinture des murs et déco (livrées aussitôt, sauvegardées).</p>', [
+      ...walls.map(([n, c]) => ({ label: `Peindre en ${n} · 120 €`, keep: true, run: () => { if (L.money(-120, 'peinture')) { st.decor.wall = c; this.applyDecor(); L.save(); } } })),
+      ...DECOR.map(d => ({ label: `${st.decor.items.includes(d.id) ? '✔ ' : ''}${d.name} · ${d.price} €`, disabled: st.decor.items.includes(d.id), keep: true, run: () => { if (L.money(-d.price, d.name)) { st.decor.items.push(d.id); this.applyDecor(); L.save(); this.decorMenu(); } } })),
+    ]);
   }
   update(dt) {
     if (!this.doorPivot) return;
@@ -138,6 +171,7 @@ export class HomeInterior {
       this.showerGlass.opacity = 0.25; this.showerGlass.roughness = 0.05;
       setTimeout(() => this.steam.children.forEach(m => m.material.opacity = 0), 2500);
     }
+    if (s.act === 'decor') return this.decorMenu();
     if (s.act === 'wardrobe') await A.run({ to: s.p.clone(), face: -Math.PI / 2, arms: 'reach', dur: 0.8 });
     if (s.act === 'sleep') { const h = g.hour, dur = h < 7 ? 7 - h : 31 - h; return L.skip(dur, () => { st.needs.energie = 100; st.needs.faim = Math.max(0, st.needs.faim - dur * 2); }); }
     if (s.act === 'tv') return L.skip(1, () => { st.needs.moral = Math.min(100, st.needs.moral + 12); });

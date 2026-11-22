@@ -75,7 +75,9 @@ export class Places {
     if (j.act === 'cashier') return this.cashierGame(p, j, hours);
     L.closePanel(); await g.actions.run({ arms: 'reach', dur: 1.2 });
     await L.skip(hours, () => {
-      const pay = hours * j.pay + (j.tips ? 10 + Math.random() * 30 : 0) + (j.bonus && Math.random() < 0.35 ? 250 : 0);
+      const grade = Math.min(20, Math.floor((L.s.stats.worked || 0) / 16)); const before = L.s.grade || 0; L.s.grade = grade;
+      if (grade > before) L.notify(`📈 Promotion ! Salaire +${grade * 2} %`, 'ok');
+      const pay = (hours * j.pay + (j.tips ? 10 + Math.random() * 30 : 0) + (j.bonus && Math.random() < 0.35 ? 250 : 0)) * (1 + grade * 0.02);
       L.money(pay, `salaire (${hours.toFixed(1)} h)`);
       L.s.needs.energie = Math.max(0, L.s.needs.energie - hours * 6); L.s.needs.faim = Math.max(0, L.s.needs.faim - hours * 5); L.s.needs.social = Math.min(100, L.s.needs.social + 15);
       L.s.stats.worked += hours; L.s.stats.earned += pay;
@@ -180,7 +182,14 @@ export class Places {
   _factory(p) { this.g.life.panel(p.name, '<p>Usine — embauche sur place le matin.</p>', [{ label: 'Faire une journée d’intérim (6h-14h) · 11 €/h', run: () => this.temp(p, 11, 6, 14) }]); }
   _office(p) { this.g.life.panel(p.name, '<p>Tour de bureaux.</p>', [...this.jobButtons(p), { label: 'Cambrioler les bureaux ⚠', run: () => { this.burgle(p); return false; } }]); }
   _park(p) { const L = this.g.life; L.panel(p.name, '<p>Un coin de verdure.</p>', [{ label: 'Se détendre sur un banc (1 h)', run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 15); L.s.needs.energie = Math.min(100, L.s.needs.energie + 5); }) }, { label: 'Faire un footing (1 h)', run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 12); L.s.needs.energie -= 10; L.s.needs.hygiene -= 15; }) }]); }
-  _sports(p) { this._park(p); }
+  _sports(p) {
+    const L = this.g.life, s = L.s; s.skills = s.skills || { endurance: 10, conduite: 10, tir: 5 };
+    L.panel(p.name, `<p>Salle de sport et terrain. Endurance actuelle : <b>${Math.round(s.skills.endurance)}/100</b>.</p>`, [
+      { label: 'Séance de musculation (1 h) · 8 €', primary: true, run: () => { if (L.money(-8, 'salle de sport')) L.skip(1, () => { s.skills.endurance = Math.min(100, s.skills.endurance + 4); s.needs.energie -= 15; s.needs.hygiene -= 20; s.needs.moral = Math.min(100, s.needs.moral + 10); L.notify('💪 Endurance +4'); }); } },
+      { label: 'Match de foot entre amis (2 h)', run: () => L.skip(2, () => { s.skills.endurance = Math.min(100, s.skills.endurance + 3); s.needs.social = Math.min(100, s.needs.social + 25); s.needs.energie -= 20; }) },
+      { label: 'Footing (1 h)', run: () => L.skip(1, () => { s.skills.endurance = Math.min(100, s.skills.endurance + 2); s.needs.energie -= 10; }) },
+    ]);
+  }
   _lake(p) { const L = this.g.life; L.panel(p.name, '<p>Plage de sable et eau fraîche.</p>', [
     { label: 'Se baigner (1 h)', primary: true, run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 20); L.s.needs.hygiene = Math.min(100, L.s.needs.hygiene + 15); L.s.needs.energie -= 10; }) },
     { label: 'Bronzer et se détendre (2 h)', run: () => L.skip(2, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 25); L.s.needs.energie = Math.min(100, L.s.needs.energie + 10); }) },
