@@ -163,7 +163,7 @@ export class Places {
     const L = this.g.life, v = this.g.veh;
     const btn = [];
     const owned = this.g.vehAI && this.g.vehAI.ownerIsPlayer;
-    if (v) { const cost = Math.round(v.damage * 9); btn.push({ label: `Réparer la voiture · ${fmt(cost)}`, disabled: v.damage < 1, run: () => { if (L.money(-cost, 'réparation')) v.damage = 0; } }); }
+    if (v) { const cost = Math.round(v.damage * 9); btn.push({ label: `Réparer la voiture · ${fmt(cost)}`, disabled: v.damage < 1, run: () => { if (L.money(-cost, 'réparation')) { v.damage = 0; L.notify('🔧 Voiture réparée', 'ok'); } } }); }
     const ai = this.g.vehAI, own = ai && ai.ownedIdx !== undefined ? L.s.cars[ai.ownedIdx] : null;
     if (own) {
       own.mods = own.mods || {};
@@ -181,6 +181,10 @@ export class Places {
   _office(p) { this.g.life.panel(p.name, '<p>Tour de bureaux.</p>', [...this.jobButtons(p), { label: 'Cambrioler les bureaux ⚠', run: () => { this.burgle(p); return false; } }]); }
   _park(p) { const L = this.g.life; L.panel(p.name, '<p>Un coin de verdure.</p>', [{ label: 'Se détendre sur un banc (1 h)', run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 15); L.s.needs.energie = Math.min(100, L.s.needs.energie + 5); }) }, { label: 'Faire un footing (1 h)', run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 12); L.s.needs.energie -= 10; L.s.needs.hygiene -= 15; }) }]); }
   _sports(p) { this._park(p); }
+  _lake(p) { const L = this.g.life; L.panel(p.name, '<p>Plage de sable et eau fraîche.</p>', [
+    { label: 'Se baigner (1 h)', primary: true, run: () => L.skip(1, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 20); L.s.needs.hygiene = Math.min(100, L.s.needs.hygiene + 15); L.s.needs.energie -= 10; }) },
+    { label: 'Bronzer et se détendre (2 h)', run: () => L.skip(2, () => { L.s.needs.moral = Math.min(100, L.s.needs.moral + 25); L.s.needs.energie = Math.min(100, L.s.needs.energie + 10); }) },
+    { label: 'Pique-nique (12 €)', run: () => { if (L.money(-12, 'pique-nique')) { L.feed(50); L.s.needs.social = Math.min(100, L.s.needs.social + 10); } } }]); }
   async temp(p, pay, a, b) { const L = this.g.life, h = this.g.hour; if (h > a + 1 || h < a - 1.5) { L.notify(`Présentez-vous vers ${a}h`, 'warn'); return; } await L.skip(b - h, () => { L.money((b - h) * pay, 'intérim'); L.s.needs.energie -= 40; }); }
 
   // ---------- boutique de vêtements ----------

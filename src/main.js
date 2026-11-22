@@ -66,6 +66,7 @@ async function start() {
   trees.build();
   setLoad(0.5, 'Mobilier urbain…'); await tick();
   await buildProps(scene, city.props, p => setLoad(0.5 + p * 0.2));
+  if (city.lake) city.colliders.push({ circle: true, x: city.lake.x, z: city.lake.z, r: city.lake.r - 2 });
   const world = game.world = new StaticWorld(city.colliders);
   setLoad(0.66, 'Véhicules…');
   const traffic = game.traffic = new Traffic(scene);
@@ -295,6 +296,21 @@ function nearRoad(p) { // hors ville : sommes-nous sur la route de campagne ?
   for (const e of W.edges) { if (e.kind !== 'rural') continue; const A = W.nodes[e.a], Bn = W.nodes[e.b]; if (A.x === Bn.x && Math.abs(p.x - A.x) < 5 && p.z > Math.min(A.z, Bn.z) && p.z < Math.max(A.z, Bn.z)) return true; if (A.z === Bn.z && Math.abs(p.z - A.z) < 5 && p.x > Math.min(A.x, Bn.x) && p.x < Math.max(A.x, Bn.x)) return true; }
   return false;
 }
+// Fumée du capot selon les dégâts + crissement des pneus
+const smoke = [];
+function damageFx(v, dt) {
+  const g = game, dmg = v.damage || 0;
+  if (!damageFx.tex) { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 2, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); damageFx.tex = new THREE.CanvasTexture(c); }
+  if (dmg > 40 && Math.random() < dt * (dmg / 12)) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: damageFx.tex, color: dmg > 75 ? 0x222222 : 0x9a9a9a, transparent: true, opacity: 0.55, depthWrite: false }));
+    sp.position.copy(v.car.obj.localToWorld(new THREE.Vector3((Math.random() - 0.5) * 0.6, 1.0, v.car.tpl.size.z / 2 - 0.9))); sp.scale.setScalar(0.6);
+    g.R.scene.add(sp); smoke.push({ sp, t: 0 });
+  }
+  for (const s of [...smoke]) { s.t += dt; s.sp.position.y += dt * 1.4; s.sp.scale.setScalar(0.6 + s.t * 1.6); s.sp.material.opacity = Math.max(0, 0.55 - s.t * 0.35); if (s.t > 1.6) { g.R.scene.remove(s.sp); smoke.splice(smoke.indexOf(s), 1); } }
+  // crissement
+  const slide = Math.abs(v.vx) > 2.5 || (g.input.down('Space') && v.kmh > 20) || (v.brake > 0.7 && v.kmh > 35);
+  if (slide && g.audio && g.audio.ready) { damageFx.sq = (damageFx.sq || 0) - dt; if (damageFx.sq <= 0) { damageFx.sq = 0.12; g.audio.burst(0.16, 2400, 0.05, 'bandpass'); } }
+}
 // Mains sur le volant : IK à deux os (épaule → coude → main) vers deux points de la jante qui tournent avec le volant.
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion();
 function handsOnWheel(ch, car, steer) {
@@ -432,7 +448,11 @@ function driveUpdate(dt) {
     l.intensity = v.headlights ? 60 : 0;
   }
   { const offRoad = Math.abs(v.pos.x) > -W.OX + 10 || Math.abs(v.pos.z) > -W.OZ + 10 ? !nearRoad(v.pos) : false; v.gripMul = (game.weather ? game.weather.grip : 1) * (offRoad ? 0.65 : 1) * (v.gripMod || 1) * (1 + (game.life.s.skills ? game.life.s.skills.conduite : 0) / 1000); }
-  v.update(dt, { throttle: Math.max(0, f), brake: Math.max(0, -f), steer: -s, handbrake: inp.down('Space') });
+  const dmg = v.damage || 0;
+  const limp = dmg >= 100 ? 0 : dmg > 70 ? 0.45 : dmg > 45 ? 0.75 : 1; // moteur qui faiblit puis cale
+  if (dmg >= 100 && !game._deadWarn) { game._deadWarn = true; game.life.notify('💥 Moteur hors service : faites remorquer la voiture au garage', 'warn'); } else if (dmg < 100) game._deadWarn = false;
+  v.update(dt, { throttle: Math.max(0, f) * limp, brake: Math.max(0, -f), steer: -s, handbrake: inp.down('Space') });
+  damageFx(v, dt);
   const ai = game.vehAI; ai.pos.copy(v.pos); ai.heading = v.heading; ai.v = Math.abs(v.vz);
   // conducteur visible, assis, mains au volant
   const ch = pl.char; ch.play('sit', 0.3); ch.update(dt); seatPose(v.car, ch, true); handsOnWheel(ch, v.car, v.steer);
@@ -712,7 +732,7 @@ function phList(title, items) {
 }
 const goGPS = (p, label) => { gpsTo(game, p, label); togglePhone(); };
 function phoneGPS() {
-  const types = [['supermarket', 'Supermarché'], ['gas_station', 'Station-service'], ['dealership', 'Concession automobile'], ['driving_school', 'Auto-école'], ['restaurant', 'Restaurant'], ['bakery', 'Boulangerie'], ['office', 'Bureaux'], ['garage', 'Garage'], ['warehouse', 'Entrepôt'], ['park', 'Parc'], ['bank', 'Banque'], ['pharmacy', 'Pharmacie'], ['house', 'Maisons à vendre'], ['apartments', 'Appartements']];
+  const types = [['supermarket', 'Supermarché'], ['gas_station', 'Station-service'], ['dealership', 'Concession automobile'], ['driving_school', 'Auto-école'], ['restaurant', 'Restaurant'], ['bakery', 'Boulangerie'], ['office', 'Bureaux'], ['garage', 'Garage'], ['warehouse', 'Entrepôt'], ['park', 'Parc'], ['lake', 'Lac & plage'], ['bank', 'Banque'], ['pharmacy', 'Pharmacie'], ['house', 'Maisons à vendre'], ['apartments', 'Appartements']];
   const items = types.map(([t, l]) => { const pl = W.places.find(p => p.type === t && p.door); return { t: (ICONS[t] ? ICONS[t][0] + ' ' : '') + l, s: pl ? pl.name : '', run: () => pl && goGPS(pl.door.p, pl.name) }; });
   if (game.life.s.home) items.unshift({ t: '🏠 Domicile', s: game.life.s.home.name, run: () => goGPS(W.places[game.life.s.home.id].door.p, 'Domicile') });
   phList('GPS', items);

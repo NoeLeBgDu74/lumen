@@ -87,6 +87,24 @@ export function buildCity(scene, M, trees) {
     void br;
   }
 
+  // ---------- lac de Lumen et sa plage (campagne, au nord-ouest) ----------
+  {
+    ctx.B = new Buckets();
+    const lx = W.RING_BOX.X0 + 130, lz = W.RING_BOX.Z0 + 110, R0 = 70;
+    const sand = new THREE.CircleGeometry(R0 + 14, 48).rotateX(-Math.PI / 2); sand.translate(lx, 0.01, lz);
+    const uvs = sand.attributes.uv; for (let k = 0; k < uvs.count; k++) uvs.setXY(k, uvs.getX(k) * (R0 + 14) * 2 / 3, uvs.getY(k) * (R0 + 14) * 2 / 3);
+    ctx.B.get('sand').addGeometry(sand);
+    const lake = new THREE.CircleGeometry(R0, 48).rotateX(-Math.PI / 2); lake.translate(lx, 0.06, lz); ctx.B.get('lakeWater').addGeometry(lake);
+    // ponton en bois
+    ctx.B.get('fence').aabb(lx - 1.2, 0.3, lz + R0 - 16, lx + 1.2, 0.42, lz + R0 + 4);
+    for (let z = lz + R0 - 15; z < lz + R0 + 4; z += 3) for (const x of [lx - 1.1, lx + 1.1]) ctx.B.get('frameWood').aabb(x - 0.08, -0.5, z - 0.08, x + 0.08, 0.3, z + 0.08);
+    for (let k = 0; k < 5; k++) { const a = 1.2 + k * 0.35; ctx.props.push({ name: 'wooden_picnic_table', x: lx + Math.cos(a) * (R0 + 8), y: 0.01, z: lz + Math.sin(a) * (R0 + 8), ry: a, s: 1 }); }
+    for (let k = 0; k < 26; k++) { const a = Math.random() * 6.28, rr = R0 + 18 + Math.random() * 25; trees.add(lx + Math.cos(a) * rr, lz + Math.sin(a) * rr, { scale: 1 + Math.random() * 0.5 }); }
+    const g = new THREE.Group(); for (const m of ctx.B.toMeshes(M)) g.add(m); g.userData.center = new THREE.Vector3(lx, 0, lz); scene.add(g); ctx.chunks.push(g);
+    W.addPlace({ type: 'lake', name: 'Lac de Lumen', x: lx, z: lz, door: { p: new THREE.Vector3(lx, 0, lz + R0 + 6), nrm: new THREE.Vector3(0, 0, 1) } });
+    ctx.lake = { x: lx, z: lz, r: R0 };
+  }
+
   // ---------- vitrages (une seule InstancedMesh pour toute la ville) ----------
   const gm = makeGlassMaterial();
   const quad = new THREE.PlaneGeometry(1, 1);

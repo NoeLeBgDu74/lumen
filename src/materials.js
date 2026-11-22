@@ -75,6 +75,8 @@ export function buildMaterials() {
   M.fence = grime(pbr('plank_flooring_02', { scale: 1.5, color: 0xf0ece4 }), { macro: 0.1 });
   M.curbMat = M.curb;
   M.pitch = grime(pbr('leafy_grass', { scale: 2, color: 0x9cc27a }), { macro: 0.12 });
+  M.sand = grime(pbr('coast_sand_rocks_02', { scale: 3, color: 0xe8dcc0 }), { macro: 0.2 });
+  M.lakeWater = new THREE.MeshPhysicalMaterial({ color: 0x1d4f5c, roughness: 0.04, metalness: 0, clearcoat: 1, envMapIntensity: 1.4 });
   M.poolWater = new THREE.MeshPhysicalMaterial({ color: 0x2bb3c9, roughness: 0.02, metalness: 0, clearcoat: 1, envMapIntensity: 1.5, emissive: 0x0a4f5c, emissiveIntensity: 0.35 });
   M.skylight = std(0xa9c4d6, 0.15, 0.2, { envMapIntensity: 1.4 });
   M.mailbox = std(0x2b4a6b, 0.4, 0.5);

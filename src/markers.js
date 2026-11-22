@@ -6,7 +6,7 @@ const KEY = {
   driving_school: ['🚗', 'AUTO-ÉCOLE', '#e08a1e'], dealership: ['🚙', 'CONCESSION AUTO', '#2a62c9'], supermarket: ['🛒', 'SUPERMARCHÉ', '#d63b30'],
   gas_station: ['⛽', 'STATION-SERVICE', '#1f8a4c'], garage: ['🔧', 'GARAGE · TAXI', '#5f6b70'], warehouse: ['📦', 'LIVRAISONS', '#8a6b45'],
   office: ['🏢', 'BUREAUX', '#4b5a73'], bank: ['€', 'BANQUE', '#20406b'], restaurant: ['🍽', 'RESTAURANT', '#b8462b'], cafe: ['☕', 'CAFÉ', '#7a4f2b'],
-  bakery: ['🥖', 'BOULANGERIE', '#a0702a'], gunshop: ['🔫', 'ARMURERIE', '#8a1c1c'], apartments_home: ['🏠', 'MON DOMICILE', '#2f6b47'], pharmacy: ['✚', 'PHARMACIE', '#1e9e6a'], factory: ['🏭', 'USINE (intérim)', '#55524f'],
+  bakery: ['🥖', 'BOULANGERIE', '#a0702a'], lake: ['🏖', 'LAC & PLAGE', '#1e8fb0'], gunshop: ['🔫', 'ARMURERIE', '#8a1c1c'], apartments_home: ['🏠', 'MON DOMICILE', '#2f6b47'], pharmacy: ['✚', 'PHARMACIE', '#1e9e6a'], factory: ['🏭', 'USINE (intérim)', '#55524f'],
 };
 
 function sprite(icon, label, name, color) {
