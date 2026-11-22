@@ -282,7 +282,7 @@ function aimBone(bone, childPos, target) {
 }
 
 // Siège et tête du conducteur déduits du volant de chaque modèle (sinon valeurs par défaut).
-function seatOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y - 0.55, sw.position.z - 0.78) : SEAT.clone(); }
+function seatOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y - 0.44, sw.position.z - 0.68) : SEAT.clone(); }
 function headOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y + 0.3, sw.position.z - 0.62) : HEAD.clone(); }
 function seatPose(car, ch) {
   const ls = seatOf(car); const p = car.obj.localToWorld(ls.clone());
