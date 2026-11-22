@@ -129,3 +129,6 @@ html, body { margin:0; height:100%; overflow:hidden; background:#0b0c0f; color:v
 .admt { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px; } .admt button { padding:5px 8px; border-radius:8px; border:1px solid var(--line); background:rgba(255,255,255,.05); color:#fff; font:600 11px Inter; cursor:pointer; text-transform:capitalize; }
 .admt button.on, .admb button.on { background:#c0392b; border-color:#c0392b; }
 .admb { overflow:auto; display:flex; flex-direction:column; gap:4px; } .admb button { text-align:left; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:rgba(255,255,255,.05); color:#fff; font:500 12px Inter; cursor:pointer; }
+
+#crosshair.small { width:12px; height:12px; margin:-6px 0 0 -6px; }
+#weapon b { color:#fff; } #weapon span { opacity:.6; }

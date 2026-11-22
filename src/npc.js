@@ -224,7 +224,7 @@ export class Population {
         for (const [x, y] of [[a, b], [b, a]]) {
           x.resume = x.state; x.state = 'talk'; x.talkWith = y; x.talkUntil = this.game.time + dur;
           x.heading = Math.atan2(y.pos.x - x.pos.x, y.pos.z - x.pos.z);
-          rel(x, y, r ? 0.03 : 0.2, r ? r.kind : 'connaissance');
+          rel(x, y, r ? 0.03 : 0.2, r ? r.kind : 'connaissance'); if (this.game.living) this.game.living.spread(x, y);
           this.remember(x, r ? `a discuté avec ${y.first} (${r.kind})` : `a fait la connaissance de ${y.first} ${y.last}`);
         }
       }

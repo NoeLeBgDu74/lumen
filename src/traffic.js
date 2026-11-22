@@ -83,7 +83,7 @@ export class Traffic {
     this.time += dt;
     const obstacles = ctx.obstacles || [];
     for (const ai of this.cars) {
-      if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police' || ai.state === 'jacked') continue;
+      if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police' || ai.state === 'jacked' || ai.state === 'broken') continue;
       this.step(ai, dt, obstacles, ctx);
     }
   }
@@ -126,7 +126,7 @@ export class Traffic {
     // feu rouge / orange
     const node = W.nodes[e.b];
     const stopLine = e.len - W.RW - 4.6;
-    if (!ai.turn && node.signal && ai.t < stopLine + 0.5) {
+    if (!ai.turn && node.signal && ai.t < stopLine + 0.5 && !ai.thief) {
       const st = signalState(node, Math.abs(e.dir.x) > 0.5 ? 'x' : 'z', this.time);
       if (st === 'R' || (st === 'Y' && stopLine - ai.t > ai.v * 1.2)) stopT = Math.min(stopT, stopLine);
     }

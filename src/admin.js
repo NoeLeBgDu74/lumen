@@ -29,7 +29,7 @@ export class Admin {
       this.btn('Invincible : ' + (this.god ? 'OUI' : 'non'), () => { this.god = !this.god; }, this.god),
       this.btn('Super vitesse : x' + this.speed, () => { this.speed = this.speed >= 4 ? 1 : this.speed * 2; }),
       this.btn('Vol libre (noclip) : ' + (this.fly ? 'OUI' : 'non') + ' — ZQSD, Espace/Ctrl', () => { this.fly = !this.fly; }, this.fly),
-      this.btn('Toutes les armes + munitions', () => { const s = g.life.s; for (const k in WEAPONS) s.weapons[k] = true; s.ammo.pistol = 999; s.ammo.smg = 999; }),
+      this.btn('Toutes les armes + munitions', () => { const s = g.life.s; for (const k in WEAPONS) s.weapons[k] = true; s.ammo.pistol = 999; s.ammo.rifle = 999; s.clip = s.clip || {}; s.clip.pistol = 15; s.clip.rifle = 5; }),
       this.btn('Permis de conduire obtenu', () => { const l = g.life.s.license; l.enrolled = l.code = true; l.lessons = 2; l.permis = true; g.license = true; }),
       this.btn('Effacer la sauvegarde (nouvelle vie)', () => { if (confirm('Effacer la partie ?')) { localStorage.removeItem('lw.save'); localStorage.removeItem('lw.profile'); location.reload(); } }),
     ];

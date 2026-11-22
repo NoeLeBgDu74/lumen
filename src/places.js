@@ -169,10 +169,10 @@ export class Places {
     const btn = [];
     for (const [k, w] of Object.entries(WEAPONS)) {
       if (k === 'fists') continue;
-      if (!s.weapons[k]) btn.push({ label: `Acheter : ${w.name} · ${fmt(w.price)}`, keep: true, run: () => { if (L.money(-w.price, w.name)) { s.weapons[k] = true; L.notify(w.name + ' achetée — touche ' + w.key.slice(-1), 'ok'); this._gunshop(p); } } });
+      if (!s.weapons[k]) btn.push({ label: `Acheter : ${w.name} · ${fmt(w.price)}`, keep: true, run: () => { if (L.money(-w.price, w.name)) { s.weapons[k] = true; s.clip[k] = 0; L.notify(w.name + ' achetée — touche ' + w.key.slice(-1), 'ok'); this._gunshop(p); } } });
       else if (w.ammoPrice) btn.push({ label: `Munitions ${w.name} (+${w.clip * 3}) · ${fmt(w.ammoPrice)}`, keep: true, run: () => { if (L.money(-w.ammoPrice, 'munitions')) { s.ammo[k] = (s.ammo[k] || 0) + w.clip * 3; this._gunshop(p); } } });
     }
-    L.panel(p.name, `<p>Armes : touches 1 à 4 · clic gauche (souris verrouillée) pour tirer.<br>Munitions : pistolet ${s.ammo.pistol || 0} · PM ${s.ammo.smg || 0}</p>`, [...btn, ...this.robButton(p)]);
+    L.panel(p.name, `<p>Armes : touches 1 à 5 · clic droit pour viser · clic gauche pour tirer · R pour recharger.<br>Munitions : pistolet ${s.ammo.pistol || 0} · fusil ${s.ammo.rifle || 0}</p>`, [...btn, ...this.robButton(p)]);
   }
 
   // ---------- cambriolage (immeubles, maisons, bureaux…) ----------

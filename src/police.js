@@ -42,14 +42,15 @@ export class Police {
     const g = this.g, before = this.wanted;
     this.wanted = Math.min(5, before ? Math.max(before + (n >= 2 ? 1 : 0), n) : n); this.lostT = 0;
     this.search = { pos: pos.clone(), r: 160 - this.wanted * 15, t: g.time };
+    this.lastSeenAs = g.veh ? 'car:' + g.veh.car.tpl.spec.id + (g.veh.car.paint ? g.veh.car.paint.color.getHexString() : '') : 'foot';
     if (car) { this.knownCar = car; g.life.notify(`🚘 Plaque relevée : ${car.name} recherchée`, 'warn'); }
     if (this.wanted > before) g.life.notify(`${byPolice ? '🚓 La police vous a vu·e' : '📞 Un témoin a appelé la police'} : ${'★'.repeat(this.wanted)} (${why})`, 'warn');
     this.renderStars();
   }
   renderStars() { $('stars').textContent = this.wanted ? '★'.repeat(this.wanted) + '☆'.repeat(5 - this.wanted) : ''; }
 
-  spawnUnit() {
-    const g = this.g, p = this.search ? this.search.pos : (g.veh ? g.veh.pos : g.player.pos);
+  spawnUnit(at) {
+    const g = this.g, p = at || (this.search ? this.search.pos : (g.veh ? g.veh.pos : g.player.pos));
     const a = Math.random() * Math.PI * 2, d = 120 + Math.random() * 80;
     let x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
     const r = g.world.resolve(x, z, 2.5); x = r.x; z = r.z;
@@ -79,17 +80,24 @@ export class Police {
       const o = c.t.obj; if ((c.t.ped && o.state === 'down') || o.hurt) continue; // témoin neutralisé
       if (!c.inc.reported) { c.inc.reported = true; this.raise(c.inc.n, c.inc.why + ' — signalé par ' + c.t.name.toLowerCase(), c.inc.pos, c.inc.car); }
     }
+    const curAs = g.veh ? 'car:' + g.veh.car.tpl.spec.id + (g.veh.car.paint ? g.veh.car.paint.color.getHexString() : '') : 'foot';
     const inKnownCar = this.knownCar && g.veh && (g.veh.car.tpl.spec.id + (g.veh.car.paint ? g.veh.car.paint.color.getHexString() : '')) === this.knownCar.key;
     // nombre d'unités selon le niveau
     const want = this.wanted ? Math.min(6, this.wanted + 1) : 0;
-    if (this.units.length < want && (!this._spawnT || g.time - this._spawnT > 4)) { this._spawnT = g.time; this.spawnUnit(); }
+    if (this.units.filter(u => !u.target).length < want && (!this._spawnT || g.time - this._spawnT > 4)) { this._spawnT = g.time; this.spawnUnit(); }
     let seen = false, close = false;
     for (const u of [...this.units]) {
       const ai = u.ai;
+      if (u.target) { this.chaseCar(u, dt); continue; }
       const dist = target.distanceTo(ai.pos);
       // repérage : vue directe du joueur (plus loin si la voiture recherchée est reconnue)
       const sight = inKnownCar ? 120 : 60;
-      const sees = this.wanted && dist < sight && g.world.segmentFree(ai.pos.x, 1.4, ai.pos.z, target.x, 1.4, target.z) > 0.97;
+      const los = this.wanted && dist < sight && g.world.segmentFree(ai.pos.x, 1.4, ai.pos.z, target.x, 1.4, target.z) > 0.97;
+      // reconnaissance : en poursuite on vous suit des yeux ; sinon il faut vous identifier (même véhicule qu'au dernier repérage,
+      // plaque relevée, ou vous à pied à moins de 10 m)
+      const recognized = u.mode === 'chase' || this.lastSeenAs === curAs || inKnownCar || (!g.veh && dist < 10);
+      const sees = los && recognized;
+      if (sees) this.lastSeenAs = curAs;
       if (sees) { u.mode = 'chase'; this.search = { pos: target.clone(), r: 60, t: g.time }; }
       else if (u.mode === 'chase' && dist > sight * 1.3) { u.mode = 'search'; u.goal = null; }
       let dest = target;
@@ -140,6 +148,20 @@ export class Police {
       }
     }
     this.siren(this.units.length && this.wanted ? Math.min(1, 60 / Math.max(10, Math.min(...this.units.map(u => u.ai.pos.distanceTo(target))))) : 0);
+  }
+  // Poursuite d'un véhicule volé par un PNJ
+  chaseCar(u, dt) {
+    const g = this.g, ai = u.ai, tg = u.target.pos;
+    const to = tg.clone().sub(ai.pos); to.y = 0; const dist = to.length();
+    const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+    ai.heading += THREE.MathUtils.clamp(dh, -1.8 * dt * (1 + ai.v / 20), 1.8 * dt * (1 + ai.v / 20));
+    const vmax = dist < 10 ? Math.max(1, dist * 0.6) : 24; ai.v += THREE.MathUtils.clamp(vmax - ai.v, -9 * dt, 6 * dt);
+    const fw = new THREE.Vector3(Math.sin(ai.heading), 0, Math.cos(ai.heading));
+    const r = g.world.resolve(ai.pos.x + fw.x * ai.v * dt, ai.pos.z + fw.z * ai.v * dt, ai.tpl.size.x / 2 + 0.3);
+    if (r.hit) { ai.heading += 1.4 * dt; ai.v *= 0.6; } ai.pos.set(r.x, 0, r.z);
+    ai.spin += ai.v * dt / 0.33; ai.car.obj.position.copy(ai.pos); ai.car.obj.rotation.set(0, ai.heading, 0);
+    poseCar(ai.car, { spin: ai.spin, steer: THREE.MathUtils.clamp(dh, -0.5, 0.5), brake: ai.v < 3, head: 1 });
+    const ph = Math.floor(g.time * 6) % 2; u.red.emissiveIntensity = ph ? 12 : 0; u.blue.emissiveIntensity = ph ? 0 : 12;
   }
   // Interpellation : un agent sort de la voiture, court vers le joueur et le menotte.
   startArrest() {

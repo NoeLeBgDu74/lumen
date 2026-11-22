@@ -31,7 +31,8 @@ export class Player {
     this.vel.x += (want.x - this.vel.x) * Math.min(1, acc * dt);
     this.vel.z += (want.z - this.vel.z) * Math.min(1, acc * dt);
     this.speed = Math.hypot(this.vel.x, this.vel.z);
-    if (this.speed > 0.2) {
+    if (this.aimLock) { let d = (this.camYaw + Math.PI) - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); this.yaw += d * Math.min(1, 14 * dt); }
+    else if (this.speed > 0.2) {
       const target = Math.atan2(this.vel.x, this.vel.z);
       let d = target - this.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
       this.yaw += d * Math.min(1, 10 * dt);
@@ -71,6 +72,7 @@ export class Player {
     const cam = this.cam;
     const tgt = focus.clone().add(new THREE.Vector3(0, height, 0));
     const dir = new THREE.Vector3(Math.sin(this.camYaw) * Math.cos(this.camPitch), Math.sin(this.camPitch), Math.cos(this.camYaw) * Math.cos(this.camPitch));
+    if (this.aimShoulder && this.mode === 'foot') { dist = 1.7; tgt.addScaledVector(new THREE.Vector3(Math.cos(this.camYaw), 0, -Math.sin(this.camYaw)), 0.55); tgt.y += 0.1; }
     const want = tgt.clone().addScaledVector(dir, dist);
     // ne pas traverser les bâtiments
     const free = this.world.segmentFree(tgt.x, tgt.y, tgt.z, want.x, want.y, want.z);

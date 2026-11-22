@@ -146,6 +146,36 @@ function makeCuffClip(work) {
   return new THREE.AnimationClip('cuffed', 1, tracks);
 }
 
+// Poses de visée (bras uniquement, jouées par-dessus la locomotion avec un poids fort).
+function makeAimClip(work, kind) {
+  const B = bonesOf(work);
+  for (const [, b] of B) if (b.userData.rest) b.quaternion.copy(b.userData.rest);
+  work.updateMatrixWorld(true);
+  const wq = (b) => b.getWorldQuaternion(new THREE.Quaternion()), wp = (b) => b.getWorldPosition(new THREE.Vector3());
+  const aim = (name, childName, dir) => {
+    const b = B.get(name), c = B.get(childName); if (!b || !c) return;
+    const cur = wp(c).sub(wp(b)).normalize();
+    const nw = new THREE.Quaternion().setFromUnitVectors(cur, dir.clone().normalize()).multiply(wq(b));
+    b.quaternion.copy(wq(b.parent).invert().multiply(nw)); work.updateMatrixWorld(true);
+  };
+  const names = ['RightShoulder', 'RightArm', 'RightForeArm', 'RightHand', 'LeftShoulder', 'LeftArm', 'LeftForeArm', 'LeftHand'];
+  if (kind === 'pistol') {
+    aim('RightArm', 'RightForeArm', new THREE.Vector3(-0.12, 0.02, 1));
+    aim('RightForeArm', 'RightHand', new THREE.Vector3(-0.08, 0.03, 1));
+    aim('LeftArm', 'LeftForeArm', new THREE.Vector3(0.3, -0.25, 0.9));
+    aim('LeftForeArm', 'LeftHand', new THREE.Vector3(-0.7, 0.05, 0.7));
+  } else {
+    aim('RightArm', 'RightForeArm', new THREE.Vector3(-0.35, -0.55, 0.6));
+    aim('RightForeArm', 'RightHand', new THREE.Vector3(0.35, 0.15, 0.95));
+    aim('LeftArm', 'LeftForeArm', new THREE.Vector3(0.05, -0.25, 1));
+    aim('LeftForeArm', 'LeftHand', new THREE.Vector3(-0.35, 0.12, 1));
+  }
+  const tracks = [];
+  for (const n of names) { const b = B.get(n); if (!b) continue; const q = b.quaternion; tracks.push(new THREE.QuaternionKeyframeTrack(b.name.replace(/[\[\]\.:\/]/g, '') + '.quaternion', [0, 1], [q.x, q.y, q.z, q.w, q.x, q.y, q.z, q.w])); }
+  for (const [, b] of B) if (b.userData.rest) b.quaternion.copy(b.userData.rest);
+  return new THREE.AnimationClip('aim_' + kind, 1, tracks);
+}
+
 const bases = {};
 export async function loadCharBase(id) {
   if (bases[id]) return bases[id];
@@ -163,6 +193,7 @@ export async function loadCharBase(id) {
   for (const [n, srcName] of CLIPS) { if (clips[n]) continue; const c = src.clips.find(a => a.name === srcName); if (c) clips[n] = bakeRetarget(src, work, tRest, c, n); }
   clips.sit = makeSitClip(work, tRest);
   clips.cuffed = makeCuffClip(work);
+  clips.aimP = makeAimClip(work, 'pistol'); clips.aimR = makeAimClip(work, 'rifle');
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root);
   bases[id] = { root, scale: 1.72 / (box.max.y - box.min.y), minY: box.min.y, clips, def };
@@ -189,6 +220,13 @@ export class Character {
     this.animAcc = 0;
   }
   has(name) { return !!this.actions[name]; }
+  // Couche de visée (bras) au-dessus de l'animation courante.
+  overlay(name) {
+    if (this.ovName === name) return;
+    if (this.ov) this.ov.stop();
+    this.ovName = name; this.ov = null;
+    if (name && this.actions[name]) { const a = this.actions[name]; a.reset(); a.play(); a.setEffectiveWeight(8); this.ov = a; }
+  }
   play(name, fade = 0.25, timeScale = 1) {
     const a = this.actions[name]; if (!a) return;
     a.timeScale = timeScale;

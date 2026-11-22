@@ -20,6 +20,7 @@ import { Peds } from './peds.js';
 import { Markers } from './markers.js';
 import { Combat } from './combat.js';
 import { Admin } from './admin.js';
+import { Living } from './living.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
 import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
 import { Places, PJOBS } from './places.js';
@@ -89,7 +90,7 @@ async function start() {
   game.minimap = new Minimap(game);
   game.peds = new Peds(game); game.peds.max = Math.max(6, R.q.npc - 4);
   game.markers = new Markers(scene);
-  game.combat = new Combat(game); game.admin = new Admin(game);
+  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living;
   { const ph = W.places.find(p => p.type === 'pharmacy'); window.__lwHospital = ph ? ph.door.p : null; }
   const off = W.places.find(p => p.type === 'office'); game.policeStation = off ? off.door.p : null;
   game.ownedAI = [];
@@ -128,8 +129,8 @@ async function start() {
       if (input.pressed('KeyF')) toggleCar();
       if (input.pressed('KeyE')) handleE();
       if (input.pressed('KeyP')) togglePhone();
-      gameplayUpdate(dt); fxUpdate(dt); game.combat.update(dt); if (!game.admin.fly) game.admin.update(dt); game.peds.update(dt); game.markers.update(camera, game.time);
-      if (input.pressed('KeyR')) robNearest();
+      gameplayUpdate(dt); fxUpdate(dt); game.combat.update(dt); game.living.update(dt); if (!game.admin.fly) game.admin.update(dt); game.peds.update(dt); game.markers.update(camera, game.time);
+      if (input.pressed('KeyG')) robNearest();
       if (game.seq) seqUpdate(dt);
       else if (game.veh) driveUpdate(dt);
       else if (game.admin && game.admin.fly) { game.admin.update(dt); player.update(dt, input); player.updateCamera(dt, player.pos); }
@@ -247,9 +248,12 @@ function fxUpdate(dt) {
   }
 }
 
+// Siège et tête du conducteur déduits du volant de chaque modèle (sinon valeurs par défaut).
+function seatOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y - 0.5, sw.position.z - 0.62) : SEAT.clone(); }
+function headOf(car) { const sw = car.steeringWheel; return sw ? new THREE.Vector3(sw.position.x, sw.position.y + 0.3, sw.position.z - 0.62) : HEAD.clone(); }
 function seatPose(car, ch) {
-  const p = car.obj.localToWorld(SEAT.clone());
-  ch.obj.position.set(p.x, car.obj.position.y + SEAT.y - ch.hipH + 0.02, p.z);
+  const ls = seatOf(car); const p = car.obj.localToWorld(ls.clone());
+  ch.obj.position.set(p.x, p.y - ch.hipH + 0.05, p.z);
   ch.obj.rotation.set(0, car.obj.rotation.y, 0);
 }
 function seqUpdate(dt) {
@@ -280,7 +284,7 @@ function seqUpdate(dt) {
       if (s.t > (s.phase === 'break' ? 1.6 : 1.1)) { if (s.phase === 'break' && Math.random() < 0.3) { game.life.notify('🚨 Alarme !'); game.police.addWanted(1, 'alarme de voiture'); } s.phase = 'sit'; s.t = 0; s.from = pl.pos.clone(); s.fromYaw = pl.yaw; ch.play('sit', 0.7); }
     } else {
       s.t += dt; const k = Math.min(1, s.t / 1.2), e = k * k * (3 - 2 * k);
-      const seat = car.obj.localToWorld(SEAT.clone()); seat.y = car.obj.position.y + SEAT.y - ch.hipH + 0.02;
+      const seat = car.obj.localToWorld(seatOf(car)); seat.y -= ch.hipH - 0.05;
       // se tourner dos au siège, puis glisser à l'intérieur
       const yawIn = car.obj.rotation.y;
       let dy = yawIn - s.fromYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
@@ -343,7 +347,7 @@ function driveUpdate(dt) {
     game.lookPitch = THREE.MathUtils.clamp((game.lookPitch || 0) - my * 0.003, -0.6, 0.5);
     if (!mx && !my) { game.lookYaw *= Math.pow(0.15, dt * (Math.abs(v.vz) > 3 ? 1 : 0)); }
     const cam = game.R.camera;
-    const head = v.car.obj.localToWorld(HEAD.clone());
+    const head = v.car.obj.localToWorld(headOf(v.car));
     cam.position.copy(head);
     const yaw = v.heading + game.lookYaw;
     const dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(game.lookPitch), Math.sin(game.lookPitch) - 0.05, Math.cos(yaw) * Math.cos(game.lookPitch));
@@ -368,8 +372,8 @@ function driveUpdate(dt) {
 function interactPrompt() {
   const el = $('prompt');
   if ((game.talk && game.talk.open) || game.life.panelOpen) { el.hidden = true; return; }
-  if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant') + ' &nbsp; <kbd>R</kbd>Voler'; return; } }
-  if (!game.veh && !game.seq) { const pd = game.peds.nearest(game.player.pos); if (pd) { el.hidden = false; el.innerHTML = '<kbd>R</kbd>Voler ce passant'; return; } }
+  if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant') + ' &nbsp; <kbd>G</kbd>Voler'; return; } }
+  if (!game.veh && !game.seq) { const pd = game.peds.nearest(game.player.pos); if (pd) { el.hidden = false; el.innerHTML = '<kbd>G</kbd>Voler ce passant'; return; } }
   if (!game.veh && !game.seq) { const pl = game.places.nearest(game.player.pos); if (pl) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>' + game.places.label(pl); return; } }
   if (game.veh && nearPump()) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Faire le plein'; return; }
   if (!game.veh) { const ai = nearestCar(); if (ai) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans ' + ai.tpl.spec.name; return; } }

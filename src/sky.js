@@ -55,6 +55,7 @@ export class Sky {
     this.sun.shadow.bias = -0.00025; this.sun.shadow.normalBias = 0.035;
     this.sun.shadow.camera.near = 1; this.sun.shadow.camera.far = 900;
     scene.add(this.sun, this.sun.target);
+    this.hemi = new THREE.HemisphereLight(0x8fa6d6, 0x2a2118, 0); scene.add(this.hemi); // appoint nocturne (éclairage urbain diffus)
     scene.fog = new THREE.FogExp2(0xb8c4d0, 0.0007);
     this.fogColor = new THREE.Color();
   }
@@ -100,6 +101,7 @@ export class Sky {
     if (isMoon) { this.sun.intensity = THREE.MathUtils.lerp(A.sun, B.sun, m); this.sun.color.set(0x9fb4ff); }
     this.night = THREE.MathUtils.clamp(1 - (THREE.MathUtils.lerp(A.sky, B.sky, m) - 0.05) / 0.4, 0, 1);
     this.exposure = THREE.MathUtils.lerp(A.exp, B.exp, m);
+    this.hemi.intensity = 0.04 + this.night * (this.scene.userData.fogBoost > 1 ? 0.9 : 0.45);
     this.r.toneMappingExposure = this.exposure;
 
     // Ombres : la caméra d'ombre suit le joueur, alignée sur la grille des texels (pas de scintillement).

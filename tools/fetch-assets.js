@@ -13,7 +13,7 @@ const MODELS = ['street_lamp_01', 'street_lamp_02', 'fire_hydrant', 'metal_trash
   'planter_box_01', 'potted_plant_02', 'shrub_02', 'exterior_aircon_unit', 'outdoor_table_chair_set_01',
   'CoffeeCart_01', 'korean_public_payphone_01', 'Sofa_01', 'modern_arm_chair_01', 'modern_coffee_table_01',
   'bar_chair_round_01', 'GothicBed_01', 'Television_01', 'CashRegister_01', 'potted_plant_01', 'dining_table',
-  'WoodenChair_01', 'Shelf_01', 'trashbag', 'concrete_road_barrier'];
+  'WoodenChair_01', 'Shelf_01', 'trashbag', 'concrete_road_barrier', 'service_pistol', 'bolt_action_rifle_7_62', 'baseball_bat', 'fish_knife'];
 
 async function json(url) { const r = await fetch(url, UA); if (!r.ok) throw new Error(r.status + ' ' + url); return r.json(); }
 async function dl(url, dest) {
