@@ -83,7 +83,7 @@ export class Traffic {
     this.time += dt;
     const obstacles = ctx.obstacles || [];
     for (const ai of this.cars) {
-      if (ai.state === 'parked' || ai.state === 'player') continue;
+      if (ai.state === 'parked' || ai.state === 'player' || ai.state === 'police') continue;
       this.step(ai, dt, obstacles, ctx);
     }
   }
@@ -204,9 +204,13 @@ export class Traffic {
     const cb = ai.onArrive; ai.onArrive = null; cb && cb(ai);
   }
 
+  remove(ai) {
+    this.scene.remove(ai.car.obj); if (ai.spot) ai.spot.taken = null; if (ai.target) ai.target.taken = null;
+    const i = this.cars.indexOf(ai); if (i >= 0) this.cars.splice(i, 1);
+  }
   // Masque les voitures lointaines (simulation conservée).
   cull(cam, dist) {
-    for (const ai of this.cars) ai.car.obj.visible = ai.state === 'player' || ai.pos.distanceTo(cam) < dist;
+    for (const ai of this.cars) ai.car.obj.visible = ai.state === 'player' || ai.state === 'police' || ai.pos.distanceTo(cam) < dist;
   }
 }
 

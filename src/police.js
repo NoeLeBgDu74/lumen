@@ -1,0 +1,113 @@
+// Police et niveau de recherche (1 à 5 étoiles) : patrouilles qui prennent en chasse, sirènes, arrestation, fuite.
+import * as THREE from 'three';
+import { poseCar } from './cars.js';
+
+const $ = (id) => document.getElementById(id);
+
+export class Police {
+  constructor(game) {
+    this.g = game; this.wanted = 0; this.heat = 0; this.units = []; this.lostT = 0; this.bustT = 0; this.audio = null;
+  }
+  addWanted(n, why) {
+    const before = this.wanted;
+    this.wanted = Math.min(5, Math.max(this.wanted, 0) + n); this.lostT = 0;
+    if (this.wanted > before) this.g.life.notify(`Recherché·e : ${'★'.repeat(this.wanted)} (${why})`, 'warn');
+    this.renderStars();
+  }
+  renderStars() { $('stars').textContent = this.wanted ? '★'.repeat(this.wanted) + '☆'.repeat(5 - this.wanted) : ''; }
+
+  spawnUnit() {
+    const g = this.g, p = g.veh ? g.veh.pos : g.player.pos;
+    const a = Math.random() * Math.PI * 2, d = 110 + Math.random() * 60;
+    let x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
+    const r = g.world.resolve(x, z, 2.5); x = r.x; z = r.z;
+    const ai = g.traffic.newCar('fairheaven80', '#16181d');
+    ai.state = 'police'; ai.pos.set(x, 0, z); ai.heading = Math.atan2(p.x - x, p.z - z); ai.v = 10;
+    // rampe de gyrophares
+    const bar = new THREE.Group();
+    const mk = (c) => new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.12, 0.22), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0 }));
+    const red = mk(0xff2020), blue = mk(0x2050ff); red.position.x = 0.26; blue.position.x = -0.26;
+    bar.add(red, blue, new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 0.26), new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.6, roughness: 0.4 })));
+    bar.position.set(0, ai.tpl.size.y + 0.02, -0.2); ai.car.obj.add(bar);
+    // bande blanche « POLICE » sur les portières
+    const u = { ai, red: red.material, blue: blue.material, stuck: 0 };
+    this.units.push(u);
+    return u;
+  }
+  removeUnit(u) { this.g.removeCar(u.ai); this.units.splice(this.units.indexOf(u), 1); }
+
+  update(dt) {
+    const g = this.g; if (!g.traffic) return;
+    const target = g.veh ? g.veh.pos : g.player.pos;
+    // nombre d'unités selon le niveau
+    const want = this.wanted ? Math.min(6, this.wanted + 1) : 0;
+    if (this.units.length < want && (!this._spawnT || g.time - this._spawnT > 4)) { this._spawnT = g.time; this.spawnUnit(); }
+    let seen = false, close = false;
+    for (const u of [...this.units]) {
+      const ai = u.ai;
+      const to = target.clone().sub(ai.pos); to.y = 0; const dist = to.length();
+      if (!this.wanted) { // retour à la circulation puis disparition
+        u.leave = (u.leave || 0) + dt; if (u.leave > 8 || dist > 200) { this.removeUnit(u); continue; }
+      }
+      const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+      const vmax = this.wanted ? (dist < 12 ? Math.max(2, dist * 0.8) : 22 + this.wanted * 2) : 8;
+      ai.heading += THREE.MathUtils.clamp(dh, -1.6 * dt * (1 + ai.v / 20), 1.6 * dt * (1 + ai.v / 20));
+      ai.v += THREE.MathUtils.clamp(vmax - ai.v, -9 * dt, 6 * dt);
+      if (Math.abs(dh) > 1.2) ai.v *= Math.pow(0.4, dt);
+      const fw = new THREE.Vector3(Math.sin(ai.heading), 0, Math.cos(ai.heading));
+      const nx = ai.pos.x + fw.x * ai.v * dt, nz = ai.pos.z + fw.z * ai.v * dt;
+      const r = g.world.resolve(nx, nz, ai.tpl.size.x / 2 + 0.3);
+      if (r.hit) { u.stuck += dt; ai.heading += 1.4 * dt; ai.v *= 0.6; } else u.stuck = Math.max(0, u.stuck - dt);
+      if (u.stuck > 3) { // dégagement : recule
+        ai.pos.addScaledVector(fw, -3); u.stuck = 0;
+      } else ai.pos.set(r.x, 0, r.z);
+      ai.spin += ai.v * dt / 0.33;
+      ai.car.obj.position.copy(ai.pos); ai.car.obj.rotation.set(0, ai.heading, 0);
+      poseCar(ai.car, { spin: ai.spin, steer: THREE.MathUtils.clamp(dh, -0.5, 0.5), brake: ai.v < 3, head: 1 });
+      const ph = Math.floor(g.time * 6) % 2;
+      u.red.emissiveIntensity = this.wanted ? (ph ? 12 : 0) : 0; u.blue.emissiveIntensity = this.wanted ? (ph ? 0 : 12) : 0;
+      // collision avec la voiture du joueur
+      if (g.veh && dist < (ai.tpl.size.z / 2 + 1.6)) { g.veh.vz *= 0.85; if (!u.rammed && Math.abs(g.veh.vz) > 6) { u.rammed = true; this.addWanted(1, 'collision avec la police'); } }
+      if (dist < 70) seen = true;
+      if (dist < 8) close = true;
+    }
+    // fuite / arrestation
+    if (this.wanted) {
+      if (seen) this.lostT = 0; else this.lostT += dt;
+      const need = 10 + this.wanted * 6;
+      $('stars').classList.toggle('blink', !seen);
+      if (this.lostT > need) { this.wanted--; this.lostT = 0; this.renderStars(); if (!this.wanted) g.life.notify('Vous avez semé la police', 'ok'); }
+      const spd = g.veh ? g.veh.kmh : g.player.speed * 3.6;
+      if (close && spd < 6) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt);
+      if (this.bustT > 2.5) this.bust();
+    }
+    this.siren(this.units.length && this.wanted ? Math.min(1, 60 / Math.max(10, Math.min(...this.units.map(u => u.ai.pos.distanceTo(target))))) : 0);
+  }
+  bust() {
+    const g = this.g, L = g.life; this.bustT = 0;
+    const fine = Math.round(L.s.money * 0.5 + this.wanted * 250);
+    L.s.money = Math.max(0, L.s.money - fine);
+    L.notify(`Arrêté·e ! Amende et caution : ${fine} €`, 'warn');
+    this.wanted = 0; this.renderStars();
+    if (g.veh) g.forceExit();
+    L.skip(6, () => {
+      const st = g.policeStation || g.home.door.p; g.player.place(st.x + 2, st.z + 2, 0);
+    });
+  }
+  // sirène deux tons (Web Audio)
+  siren(level) {
+    if (!level && !this.audio) return;
+    if (!this.audio) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator(); o.type = 'sawtooth'; const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1800;
+        const gn = ctx.createGain(); gn.gain.value = 0; o.connect(f); f.connect(gn); gn.connect(ctx.destination); o.start();
+        this.audio = { ctx, o, gn };
+      } catch (e) { this.audio = { dead: true }; return; }
+    }
+    if (this.audio.dead) return;
+    const { o, gn, ctx } = this.audio;
+    o.frequency.setTargetAtTime(Math.floor(this.g.time * 1.4) % 2 ? 640 : 860, ctx.currentTime, 0.02);
+    gn.gain.setTargetAtTime(level * 0.06, ctx.currentTime, 0.2);
+  }
+}

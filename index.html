@@ -27,10 +27,15 @@
 <div id="hud" hidden>
   <div id="clockbox"><div id="clock">08:00</div><div id="day">Lundi · Jour 1</div><div id="money">1 250 €</div></div>
   <div id="needs"></div>
+  <div id="mapbox"><canvas id="minimap"></canvas><div id="district"></div></div>
+  <div id="stars"></div>
+  <div id="notifs"></div>
+  <div id="fuel" hidden><span>⛽</span><div class="b"><i id="fuelbar"></i></div></div>
+  <div id="mission" hidden></div>
   <div id="prompt" hidden></div>
   <div id="toast"></div>
   <div id="speedo" hidden><b id="kmh">0</b><span>km/h</span><em id="gear">D</em></div>
-  <div id="help">ZQSD bouger · Maj courir · Espace sauter · E parler · F voiture · C vue intérieure · Échap menu</div>
+  <div id="help">ZQSD bouger · Maj courir · Espace sauter · E interagir · F voiture · C vue intérieure · P téléphone · Échap menu</div>
 </div>
 
 <div id="fade"></div>
@@ -61,6 +66,16 @@
     <div id="talkQuick"><button>Comment ça va ?</button><button>Tu fais quoi dans la vie ?</button><button>Ta journée ?</button><button data-bye="1">Au revoir</button></div>
     <div class="tin"><input id="talkIn" placeholder="Écrivez votre message…" maxlength="300"><button id="talkSend">Envoyer</button></div>
     <div id="talkMode"></div>
+  </div>
+</div>
+
+<div id="panel" hidden><div class="panel"><h2 id="panelT"></h2><div id="panelB"></div><div id="panelA"></div></div></div>
+
+<div id="phone" hidden>
+  <div class="ph">
+    <div class="phtop"><span id="phClock">08:00</span><span>LW Mobile</span></div>
+    <div id="phBody"></div>
+    <button id="phHome">●</button>
   </div>
 </div>
 

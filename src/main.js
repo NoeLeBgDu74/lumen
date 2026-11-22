@@ -15,7 +15,13 @@ import * as W from './world.js';
 import { Traffic } from './traffic.js';
 import { Vehicle } from './vehicle.js';
 import { Population } from './npc.js';
-import { Talk, getKey, setKey } from './talk.js';
+import { Talk, getKey, setKey, gender } from './talk.js';
+import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
+import { Places, PJOBS } from './places.js';
+import { Police } from './police.js';
+import { Net } from './net.js';
+import { CATALOG } from './cars.js';
+import { signalState } from './city.js';
 
 async function loadCharBase(id) { const b = await loadCharBase0(id); charCache[id] = b; return b; }
 const $ = (id) => document.getElementById(id);
@@ -72,6 +78,14 @@ async function start() {
   const mr = Math.random; let seed = 777; Math.random = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return ((seed >>> 0) % 1e9) / 1e9; };
   try { pop.generate(170); } finally { Math.random = mr; }
   game.talk = new Talk(game);
+  game.charBases = charCache;
+  game.life = new Life(game); game.places = new Places(game); game.police = new Police(game); game.net = new Net(game);
+  game.minimap = new Minimap(game);
+  const off = W.places.find(p => p.type === 'office'); game.policeStation = off ? off.door.p : null;
+  game.ownedAI = [];
+  game.life.s.cars.forEach((c, i) => game.spawnOwned(i, false));
+  const cpm = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 40, 32, 1, true), new THREE.MeshBasicMaterial({ color: 0xffb547, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }));
+  cpm.visible = false; scene.add(cpm); game.cpMarker = cpm;
   setLoad(0.9, 'Compilation des shaders…'); await tick();
   sky.hour = game.hour; sky.update(0, camera, 0);
   player.update(0.016, input); player.updateCamera(1, player.pos);
@@ -97,7 +111,9 @@ async function start() {
       game.hour += dt * game.timeScale * (input.down('KeyT') ? 30 : 1) / 3600;
       if (game.hour >= 24) { game.hour -= 24; game.day++; }
       if (input.pressed('KeyF')) toggleCar();
-      if (input.pressed('KeyE') && !game.veh && !game.seq) { const n = pop.nearestTo(player.pos, 2.6); if (n) game.talk.start(n); }
+      if (input.pressed('KeyE')) handleE();
+      if (input.pressed('KeyP')) togglePhone();
+      gameplayUpdate(dt);
       if (game.seq) seqUpdate(dt);
       else if (game.veh) driveUpdate(dt);
       else { player.update(dt, input); player.updateCamera(dt, player.pos); }
@@ -225,7 +241,8 @@ function seqUpdate(dt) {
 function startDriving(ai) {
   const pl = game.player;
   if (ai.spot) { ai.spot.taken = null; ai.spot = null; }
-  if (ai.owner && ai.owner !== 'player' && ai.owner.memory) game.pop.remember(ai.owner, `s'est fait prendre sa voiture par ${game.profile.first}`);
+  if (ai.owner && ai.owner !== 'player' && ai.owner.memory) { game.pop.remember(ai.owner, `s'est fait voler sa voiture par ${game.profile.first}`); ai.owner.car = null; }
+  if (!ai.ownerIsPlayer && Math.random() < 0.45) game.police.addWanted(1, 'vol de véhicule');
   ai.state = 'player';
   const v = game.veh = new Vehicle(ai.car, game.world); game.vehAI = ai;
   v.dyn = (p) => game.traffic.circles(p);
@@ -284,11 +301,134 @@ function driveUpdate(dt) {
 }
 function interactPrompt() {
   const el = $('prompt');
-  if (game.talk && game.talk.open) { el.hidden = true; return; }
+  if ((game.talk && game.talk.open) || game.life.panelOpen) { el.hidden = true; return; }
   if (!game.veh && !game.seq) { const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Parler à ' + (n.metPlayer ? n.first : 'cet habitant'); return; } }
+  if (!game.veh && !game.seq) { const pl = game.places.nearest(game.player.pos); if (pl) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>' + game.places.label(pl); return; } }
+  if (game.veh && nearPump()) { el.hidden = false; el.innerHTML = '<kbd>E</kbd>Faire le plein'; return; }
   if (!game.veh) { const ai = nearestCar(); if (ai) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans ' + ai.tpl.spec.name; return; } }
   el.hidden = true;
 }
+// ---------- gameplay ----------
+function nearPump() {
+  const st = W.places.find(p => p.type === 'gas_station'); if (!st || !game.veh) return false;
+  return st.pumps.some(pp => (pp.x - game.veh.pos.x) ** 2 + (pp.z - game.veh.pos.z) ** 2 < 9) && game.veh.kmh < 3;
+}
+function handleE() {
+  if (game.seq || game.life.panelOpen) return;
+  if (game.veh) { if (nearPump()) game.places.refuel(game.veh); return; }
+  const n = game.pop.nearestTo(game.player.pos, 2.6); if (n) return game.talk.start(n);
+  const pl = game.places.nearest(game.player.pos); if (pl) return game.places.open(pl);
+}
+function freeSpotNear(ref, curbOnly) {
+  let best = null, bd = Infinity;
+  for (const s of W.parkingSpots) { if (s.taken !== null || (curbOnly && s.edge === undefined)) continue; const d = (s.x - ref.x) ** 2 + (s.z - ref.z) ** 2; if (d < bd) { bd = d; best = s; } }
+  return best;
+}
+game.spawnOwned = (idx, atDealer) => {
+  const c = game.life.s.cars[idx]; const T = game.traffic;
+  const ref = atDealer ? W.places.find(p => p.type === 'dealership').door.p : (game.life.s.home ? W.places[game.life.s.home.id].door.p : game.home.door.p);
+  const ai = T.newCar(c.id, c.paint); ai.ownerIsPlayer = true; ai.owner = 'player'; ai.ownedIdx = idx; T.parkAt(ai, freeSpotNear(ref));
+  game.ownedAI[idx] = ai;
+};
+game.despawnOwned = (idx) => { const ai = game.ownedAI[idx]; if (ai) { if (game.vehAI === ai) game.forceExit(); game.removeCar(ai); } game.ownedAI.splice(idx, 1); };
+game.spawnTempCar = (id, paint, near) => { const ai = game.traffic.newCar(id, paint); ai.temp = true; ai.ownerIsPlayer = true; game.traffic.parkAt(ai, freeSpotNear(near, true)); return ai; };
+game.removeCar = (ai) => game.traffic.remove(ai);
+game.forceExit = () => { if (!game.veh) return; const ch = game.player.char; ch.obj.position.copy(doorPoint(game.veh.car)); ch.obj.visible = true; game.interior = false; endDriving(); };
+
+let pedHitT = 0;
+function gameplayUpdate(dt) {
+  const L = game.life; L.update(dt); game.places.update(dt); game.police.update(dt); game.net.update(dt);
+  game.minimapT = (game.minimapT || 0) + dt; if (game.minimapT > 0.05) { game.minimapT = 0; game.minimap.draw(); }
+  const v = game.veh; $('fuel').hidden = !v;
+  if (v) {
+    $('fuelbar').style.width = (v.fuel / v.car.tpl.spec.fuel * 100) + '%';
+    if (v.fuel <= 0 && !game._noFuel) { game._noFuel = true; L.notify('Panne sèche ! Trouvez une station-service', 'warn'); } else if (v.fuel > 0) game._noFuel = false;
+    // feu rouge grillé : passage de la ligne d'arrêt au rouge
+    const n = W.nodes[W.nearestNode(v.pos.x, v.pos.z)];
+    const dx = n.x - v.pos.x, dz = n.z - v.pos.z, d = Math.hypot(dx, dz);
+    if (n.signal && d < W.RW + 3 && d > W.RW - 1 && v.kmh > 12) {
+      const fw = new THREE.Vector3(Math.sin(v.heading), 0, Math.cos(v.heading));
+      if ((dx * fw.x + dz * fw.z) / d > 0.85) {
+        const axis = Math.abs(fw.x) > 0.7 ? 'x' : 'z';
+        if (signalState(n, axis, game.traffic.time) === 'R' && game.time - (game._redT || 0) > 4) { game._redT = game.time; game.ranRed = true; if (game.police.units.length || Math.random() < 0.15) game.police.addWanted(1, 'feu rouge grillé'); }
+      }
+    }
+    // piétons : ils s'écartent ; renversés si percutés
+    if (v.kmh > 14) for (const p of game.pop.people) {
+      if (!p.char || p.hurt) continue;
+      const dd = p.pos.distanceTo(v.pos);
+      if (dd < 7 && dd > 1.8) { const away = p.pos.clone().sub(v.pos).setY(0).normalize(); p.pos.addScaledVector(away, dt * 4); }
+      else if (dd <= 1.8 && game.time - pedHitT > 1) {
+        pedHitT = game.time; p.hurt = true; p.resume = p.state === 'talk' ? 'walk' : p.state; p.state = 'talk'; p.talkUntil = game.time + 12;
+        setTimeout(() => { p.hurt = false; }, 12000);
+        game.pop.remember(p, `s'est fait renverser par ${game.profile.first}`); p.playerOpinion = -1; v.vz *= 0.7;
+        game.police.addWanted(2, 'piéton renversé');
+      }
+    }
+  }
+  const cp = game.checkpoint;
+  game.cpMarker.visible = !!cp; if (cp) { game.cpMarker.position.set(cp.x, 20, cp.z); game.cpMarker.material.opacity = 0.16 + Math.sin(game.time * 3) * 0.06; }
+  const m = game.places.mission;
+  $('mission').hidden = !m && !game.gps;
+  if (m || game.gps) $('mission').textContent = m ? missionText(m) : 'GPS : ' + game.gps.label;
+  if (game.gps && !m && (game.veh ? game.veh.pos : game.player.pos).distanceTo(game.gps.target) < 10) { game.gps = null; L.notify('Vous êtes arrivé·e'); }
+}
+function missionText(m) {
+  if (m.type === 'lesson' || m.type === 'exam') return `${m.type === 'exam' ? 'Examen pratique' : 'Leçon de conduite'} · point ${Math.min(m.i + 1, m.pts.length)}/${m.pts.length} · fautes : ${m.faults.length}`;
+  if (m.type === 'delivery') return `Livraisons · ${m.i}/${m.dests.length} · ${m.dests[m.i] ? m.dests[m.i].name : ''}`;
+  if (m.type === 'taxi') return m.stage === 'pickup' ? 'Taxi : allez chercher le client' : 'Taxi : déposez le client à ' + m.to.name;
+  return '';
+}
+
+// ---------- téléphone ----------
+function togglePhone() {
+  const ph = $('phone'); ph.hidden = !ph.hidden;
+  if (!ph.hidden) { phoneHome(); document.exitPointerLock?.(); }
+}
+const JLAB = { cashier: 'caissier·ère', shelver: 'employé·e de rayon', office: 'employé·e de bureau', mechanic: 'mécanicien·ne', delivery: 'livreur·se', worker: 'ouvrier·ère', waiter: 'serveur·se', baker: 'boulanger·ère', seller: 'vendeur·se', car_seller: 'vendeur·se auto', instructor: 'moniteur·rice', retired: 'retraité·e', student: 'étudiant·e' };
+const APPS = [['🗺️', 'GPS', '#2a62c9', () => phoneGPS()], ['👥', 'Contacts', '#2f6b47', () => phoneContacts()], ['🏦', 'Banque', '#20406b', () => phoneBank()], ['🚗', 'Véhicules', '#8a1c1c', () => phoneCars()], ['💼', 'Emploi', '#6b5b45', () => phoneJob()], ['🪪', 'Permis', '#e08a1e', () => phoneLicense()], ['🌐', 'Multijoueur', '#6b3f8c', () => phoneNet()], ['🏠', 'Logement', '#4b5a73', () => phoneHousing()], ['⚙️', 'Réglages', '#444', () => { togglePhone(); toggleMenu(); }]];
+function phoneHome() {
+  $('phClock').textContent = $('clock').textContent;
+  $('phBody').innerHTML = `<div class="phh">Bonjour ${game.profile.first}</div><div class="apps">${APPS.map((a, i) => `<button class="app" data-i="${i}"><i style="background:${a[2]}">${a[0]}</i>${a[1]}</button>`).join('')}</div>`;
+  $('phBody').querySelectorAll('.app').forEach(b => b.onclick = () => APPS[+b.dataset.i][3]());
+}
+$('phHome').onclick = () => phoneHome();
+function phList(title, items) {
+  $('phBody').innerHTML = `<div class="phh">${title}</div>` + items.map((it, i) => `<div class="phl" data-i="${i}"><b>${it.t}</b><small>${it.s || ''}</small></div>`).join('');
+  $('phBody').querySelectorAll('.phl').forEach(el => el.onclick = () => { const it = items[+el.dataset.i]; it.run && it.run(); });
+}
+const goGPS = (p, label) => { gpsTo(game, p, label); togglePhone(); };
+function phoneGPS() {
+  const types = [['supermarket', 'Supermarché'], ['gas_station', 'Station-service'], ['dealership', 'Concession automobile'], ['driving_school', 'Auto-école'], ['restaurant', 'Restaurant'], ['bakery', 'Boulangerie'], ['office', 'Bureaux'], ['garage', 'Garage'], ['warehouse', 'Entrepôt'], ['park', 'Parc'], ['bank', 'Banque'], ['pharmacy', 'Pharmacie'], ['house', 'Maisons à vendre'], ['apartments', 'Appartements']];
+  const items = types.map(([t, l]) => { const pl = W.places.find(p => p.type === t && p.door); return { t: (ICONS[t] ? ICONS[t][0] + ' ' : '') + l, s: pl ? pl.name : '', run: () => pl && goGPS(pl.door.p, pl.name) }; });
+  if (game.life.s.home) items.unshift({ t: '🏠 Domicile', s: game.life.s.home.name, run: () => goGPS(W.places[game.life.s.home.id].door.p, 'Domicile') });
+  phList('GPS', items);
+}
+function phoneContacts() {
+  const met = game.pop.people.filter(p => p.metPlayer).sort((a, b) => b.playerOpinion - a.playerOpinion);
+  phList('Contacts', met.length ? met.map(p => ({ t: p.first + ' ' + p.last, s: `${p.age} ans · ${gender(JLAB[p.job] || p.job, p.female)} · ${p.playerOpinion > 0.5 ? 'ami·e' : p.playerOpinion < 0 ? 'vous en veut' : 'connaissance'} · ${p.state === 'inside' ? (p.at && p.at.name ? p.at.name : 'chez soi') : 'dehors'}`, run: () => goGPS(p.pos.clone(), 'Rejoindre ' + p.first) })) : [{ t: 'Aucun contact', s: 'Parlez aux habitants (touche E) pour les rencontrer.' }]);
+}
+function phoneBank() { const s = game.life.s; phList(`${fmt(s.money)} · compte ${fmt(s.bank)}`, s.log.slice(-14).reverse().map(l => ({ t: (l.v >= 0 ? '+' : '') + fmt(l.v), s: `Jour ${l.d} · ${l.why || ''}` }))); }
+function phoneCars() {
+  const s = game.life.s;
+  phList('Mes véhicules', s.cars.length ? s.cars.map((c, i) => ({ t: CATALOG.find(x => x.id === c.id).name, s: 'Toucher pour la localiser', run: () => { const ai = game.ownedAI[i]; if (ai) goGPS(ai.pos.clone(), 'Ma voiture'); } })) : [{ t: 'Aucun véhicule', s: 'Passez le permis puis allez à la concession (ou « empruntez »… à vos risques).' }]);
+}
+function phoneJob() {
+  const s = game.life.s, j = s.job && PJOBS[s.job];
+  phList('Emploi', j ? [{ t: j.label, s: `${W.places[s.jobPlace].name} · ${j.start}h-${j.end}h${j.pay ? ' · ' + j.pay + ' €/h' : ''} · heures : ${Math.round(s.stats.worked)}`, run: () => goGPS(W.places[s.jobPlace].door.p, 'Travail') }]
+    : [{ t: 'Sans emploi', s: 'Postulez à l’entrée d’un commerce, bureau, garage, entrepôt… (E).' }]);
+}
+function phoneLicense() { const l = game.life.s.license; phList('Permis de conduire', [{ t: l.permis ? '✔ Permis B obtenu' : 'En cours', s: `Inscription ${l.enrolled ? '✔' : '✘'} · Code ${l.code ? '✔' : '✘'} · Leçons ${l.lessons}/2`, run: () => { const p = W.places.find(x => x.type === 'driving_school'); if (p) goGPS(p.door.p, 'Auto-école'); } }]); }
+function phoneHousing() { const h = game.life.s.home; phList('Logement', h ? [{ t: h.name, s: h.owned ? 'Propriétaire' : 'Locataire · ' + fmt(h.rent * 4.3) + '/mois', run: () => goGPS(W.places[h.id].door.p, 'Domicile') }] : [{ t: 'Sans logement', s: 'Allez à la porte d’un immeuble ou d’une maison (E) pour louer ou acheter.' }]); }
+function phoneNet() {
+  const n = game.net;
+  $('phBody').innerHTML = `<div class="phh">Multijoueur</div>${n.active ? `<div class="phl"><b>Salon ${n.code}</b><small>${n.conns.length} joueur(s) connecté(s)</small></div><input class="phin" id="chatIn" placeholder="Message aux joueurs"><button class="phbtn" id="chatGo">Envoyer</button><div>${n.chat.slice(-8).map(c => `<div class="phl"><small>${c}</small></div>`).join('')}</div>`
+    : `<p style="font-size:12.5px;color:#bbb">Jouez avec vos amis : l’un crée un salon, les autres entrent le code.</p><button class="phbtn" id="netHost">Créer un salon</button><input class="phin" id="netCode" placeholder="Code du salon (4 lettres)" maxlength="4"><button class="phbtn" id="netJoin">Rejoindre</button>`}`;
+  const stop = (e) => e.stopPropagation();
+  if (n.active) { $('chatIn').addEventListener('keydown', e => { stop(e); if (e.key === 'Enter') { n.say($('chatIn').value); phoneNet(); } }); $('chatGo').onclick = () => { n.say($('chatIn').value); phoneNet(); }; }
+  else { $('netCode').addEventListener('keydown', stop); $('netHost').onclick = async () => { await n.hostRoom(); setTimeout(phoneNet, 1500); }; $('netJoin').onclick = () => { n.join($('netCode').value); setTimeout(phoneNet, 2500); }; }
+}
+
 let toastT = 0;
 function toast(msg) { const el = $('toast'); el.textContent = msg; el.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 3200); }
 game.toast = toast;
