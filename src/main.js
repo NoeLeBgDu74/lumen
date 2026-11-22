@@ -150,6 +150,8 @@ async function start() {
       if (input.pressed('KeyP')) togglePhone();
       gameplayUpdate(dt); fxUpdate(dt); game.combat.update(dt); game.living.update(dt); if (!game.admin.fly) game.admin.update(dt); if (!game.homeInt.inside) game.peds.update(dt); game.markers.update(camera, game.time); skillsUpdate(dt); radarsUpdate(dt);
       if (input.pressed('KeyG')) robNearest();
+      if (input.pressed('ControlLeft') && !game.veh && player.mode === 'foot') { player.crouch = !player.crouch; game.life.notify(player.crouch ? '🤫 Accroupi : discret (Ctrl pour se relever)' : 'Debout'); }
+      if (input.pressed('KeyX') && !game.veh && player.mode === 'foot') { player.surrender = !player.surrender; if (!player.surrender) player.char.overlay(null); else game.life.notify('🙌 Vous levez les mains'); }
       if (input.pressed('KeyN') && game.net.connected) { const cam = camera, d = new THREE.Vector3(); cam.getWorldDirection(d); const t = d.y < -0.02 ? -cam.position.y / d.y : 60; const p = cam.position.clone().addScaledVector(d, Math.min(t, 300)); game.net.ping(p.x, p.z); }
       if (input.down('Tab')) showRoster(); else hideRoster();
       if (input.pressed('KeyH') && !game.veh) { player.char.play('wave', 0.2); game.emoteT = game.time + 2.5; game.net.emote('wave'); }
@@ -657,7 +659,7 @@ function gameplayUpdate(dt) {
     if (inCity && v.kmh > 75) risk += (v.kmh - 75) / 40 * dt;
     if (v.pos.y > 0.08 && v.kmh > 15) risk += 0.6 * dt; // sur le trottoir
     if (Math.abs(v.vx) > 3 && v.kmh > 30) risk += 0.4 * dt; // dérapage
-    if (v.lastHit > 4) { risk += 0.5; v.lastHit = 0; game._hitT = game.time; }
+    if (v.lastHit > 4) { if (v.lastHit > 11 && game.combat) { game.combat.damage((v.lastHit - 10) * 3, 'choc violent'); game.audio && game.audio.burst(0.3, 500, 0.5); } risk += 0.5; v.lastHit = 0; game._hitT = game.time; }
     game.reckless = Math.max(0, (game.reckless || 0) * Math.pow(0.97, dt) + risk);
     if (game.reckless > 1.2 && game.time - (game._recklessT || 0) > 25) {
       game._recklessT = game.time; game.reckless = 0;

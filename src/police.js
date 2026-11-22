@@ -17,7 +17,8 @@ export class Police {
     if (direct) return this.raise(n, why, (g.veh ? g.veh.pos : g.player.pos).clone(), null);
     const pos = (g.veh ? g.veh.pos : g.player.pos).clone();
     const car = g.veh ? { key: g.veh.car.tpl.spec.id + (g.veh.car.paint ? g.veh.car.paint.color.getHexString() : ''), name: g.veh.car.tpl.spec.name } : null;
-    const seen = (q) => q.distanceTo(pos) < 38 && g.world.segmentFree(q.x, 1.5, q.z, pos.x, 1.5, pos.z) > 0.97;
+    const R = g.player.crouch && !g.veh ? 16 : 38;
+    const seen = (q) => q.distanceTo(pos) < R && g.world.segmentFree(q.x, 1.5, q.z, pos.x, 1.5, pos.z) > 0.97;
     // un policier témoin = signalement immédiat
     for (const u of this.units) if (u.ai.pos.distanceTo(pos) < 70 && g.world.segmentFree(u.ai.pos.x, 1.4, u.ai.pos.z, pos.x, 1.4, pos.z) > 0.97) { this.raise(n, why, pos, car, true); u.mode = 'chase'; return; }
     const w = [];
@@ -135,12 +136,12 @@ export class Police {
       if (this.lostT > need) { this.wanted--; this.lostT = 0; this.renderStars(); if (!this.wanted) { g.life.notify('Vous avez semé la police', 'ok'); this.search = null; this.knownCar = null; } }
       const spd = g.veh ? g.veh.kmh : g.player.speed * 3.6;
       // interpellation : il faut être à l'arrêt (ou immobilisé) assez longtemps ; plus facile quand le niveau monte
-      if (close && spd < 4 && !this.arrest) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt * 2);
+      if (close && spd < 4 && !this.arrest) this.bustT += dt * (g.player.surrender ? 3 : 1); else this.bustT = Math.max(0, this.bustT - dt * 2);
       if (this.wanted && seen && !this._warned) { this._warned = true; g.life.notify('📢 « Police ! Arrêtez-vous immédiatement ! »', 'warn'); }
       if (!this.wanted) this._warned = false;
       if (this.bustT > [0, 5, 4, 3, 2.5, 2][this.wanted] && !this.arrest) this.startArrest();
       // tirs de la police à partir de 3 étoiles
-      if (this.wanted >= 4 && g.combat && !this.arrest) {
+      if (this.wanted >= 4 && g.combat && !this.arrest && !g.player.surrender) {
         const nearU = this.units.find(u => u.ai.pos.distanceTo(target) < 30);
         if (nearU) { const a = nearU.ai.pos, b = target; if (g.world.segmentFree(a.x, 1.2, a.z, b.x, 1.2, b.z) > 0.97) g.combat.damage(dt * (g.veh ? 2 : 5), 'tirs de la police'); }
       }
@@ -204,7 +205,8 @@ export class Police {
 
   bust() {
     const g = this.g, L = g.life; this.bustT = 0;
-    const fine = Math.round(L.s.money * 0.5 + this.wanted * 250);
+    const fine = Math.round((L.s.money * 0.5 + this.wanted * 250) * (g.player.surrender ? 0.5 : 1));
+    if (g.player.surrender) { g.player.surrender = false; L.notify('Coopération : amende réduite de moitié', 'ok'); }
     L.s.money = Math.max(0, L.s.money - fine);
     L.notify(`Arrêté·e ! Amende et caution : ${fine} €`, 'warn');
     this.wanted = 0; this.renderStars();

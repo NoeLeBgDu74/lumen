@@ -26,7 +26,7 @@ export class Player {
     if (f || s) {
       const fw = new THREE.Vector3(-Math.sin(this.camYaw), 0, -Math.cos(this.camYaw));
       const rt = new THREE.Vector3(-fw.z, 0, fw.x);
-      want.addScaledVector(fw, f).addScaledVector(rt, s).normalize().multiplyScalar((run && !this.tired ? 5.6 * (this.runBoost || 1) : 1.6) * ((adm && adm.speed) || 1) * (this.weak ? 0.72 : 1));
+      want.addScaledVector(fw, f).addScaledVector(rt, s).normalize().multiplyScalar((run && !this.tired && !this.crouch ? 5.6 * (this.runBoost || 1) : 1.6) * ((adm && adm.speed) || 1) * (this.weak ? 0.72 : 1) * (this.crouch ? 0.55 : 1) * (this.surrender ? 0 : 1));
     }
     const acc = this.onGround ? 10 : 2;
     this.vel.x += (want.x - this.vel.x) * Math.min(1, acc * dt);
@@ -60,8 +60,11 @@ export class Player {
     this.pos.set(nx, y, nz);
 
     c.obj.position.copy(this.pos); c.obj.rotation.y = this.yaw;
+    if (this.crouch) c.obj.position.y -= 0.35;
     if (this.jumpT > 0 || (window.game && window.game.emoteT > window.game.time && this.speed < 0.3)) { /* saut ou emote en cours */ }
     else if (!this.onGround) c.play(c.has('fall') ? 'fall' : 'idle', 0.2);
+    else if (this.surrender) { c.play('idle', 0.3); c.overlay('handsHead'); }
+    else if (this.crouch) { c.play('crouch', 0.3); }
     else if (this.speed > 4.2) c.play('run', 0.3, this.speed / 5.6);
     else if (this.speed > 2.2 && c.has('jog')) c.play('jog', 0.3, this.speed / 3.6);
     else if (this.speed > 0.25) c.play('walk', 0.3, Math.max(0.7, this.speed / 1.6));
