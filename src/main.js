@@ -27,6 +27,7 @@ import { Weather } from './weather.js';
 import { HomeInterior } from './home.js';
 import { Actions } from './actions.js';
 import { Story } from './story.js';
+import { playIntro } from './intro.js';
 import { Audio } from './audio.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
 import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
@@ -124,8 +125,8 @@ async function start() {
   om(); ob.onclick = () => { game.net.setEnabled(!game.net.enabled); om(); };
   addEventListener('keydown', e => { if (e.code === 'KeyV' && !e.repeat) game.net.ptt(true); });
   addEventListener('keyup', e => { if (e.code === 'KeyV') game.net.ptt(false); });
-  if (!saved) createCharacter(scene, player, camera).then(() => { $('hud').hidden = false; });
-  else $('hud').hidden = false;
+  if (!saved) createCharacter(scene, player, camera).then(() => playIntro(game).catch(() => {})).then(() => { $('hud').hidden = false; });
+  else playIntro(game).catch(() => {}).then(() => { $('hud').hidden = false; });
 
   let last = performance.now(), fpsAcc = 0, fpsN = 0;
   function loop(now) {
@@ -174,6 +175,7 @@ async function start() {
     if (game.homeInt) game.homeInt.update(dt);
     if (game.audio) game.audio.update(dt);
     if (input.pressed('Escape') || (game.talk && game.talk.open && game.escTalk)) { if (game.talk && game.talk.open) game.talk.close(); else toggleMenu(); }
+    if (game.camOverride) game.camOverride();
     R.render(game.time);
     input.endFrame();
     hud(); fpsAcc += dt; fpsN++;
