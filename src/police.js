@@ -83,8 +83,9 @@ export class Police {
     const curAs = g.veh ? 'car:' + g.veh.car.tpl.spec.id + (g.veh.car.paint ? g.veh.car.paint.color.getHexString() : '') : 'foot';
     const inKnownCar = this.knownCar && g.veh && (g.veh.car.tpl.spec.id + (g.veh.car.paint ? g.veh.car.paint.color.getHexString() : '')) === this.knownCar.key;
     // nombre d'unités selon le niveau
-    const want = this.wanted ? Math.min(6, this.wanted + 1) : 0;
-    if (this.units.filter(u => !u.target).length < want && (!this._spawnT || g.time - this._spawnT > 4)) { this._spawnT = g.time; this.spawnUnit(); }
+    // escalade progressive : 1 patrouille à 1★, jusqu'à 6 à 5★ ; renforts plus rapides quand ça chauffe
+    const want = this.wanted ? [0, 1, 2, 3, 5, 6][this.wanted] : 0;
+    if (this.units.filter(u => !u.target).length < want && (!this._spawnT || g.time - this._spawnT > 14 / this.wanted)) { this._spawnT = g.time; this.spawnUnit(); }
     let seen = false, close = false;
     for (const u of [...this.units]) {
       const ai = u.ai;
@@ -110,7 +111,9 @@ export class Police {
         u.leave = (u.leave || 0) + dt; if (u.leave > 8 || dist > 200) { this.removeUnit(u); continue; }
       }
       const hd = Math.atan2(to.x, to.z); let dh = hd - ai.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-      const vmax = !this.wanted ? 8 : u.mode === 'chase' ? (dist < 12 ? Math.max(2, dist * 0.8) : 22 + this.wanted * 2) : 13;
+      // vitesse et agressivité selon le niveau : à 1★ on suit, à 3★ on percute pour immobiliser
+      const keep = this.wanted >= 3 ? 0 : this.wanted === 2 ? 6 : 10;
+      const vmax = !this.wanted ? 8 : u.mode === 'chase' ? (dist < 12 + keep ? Math.max(0, (dist - keep) * 0.8) : 13 + this.wanted * 3.5) : 12;
       ai.heading += THREE.MathUtils.clamp(dh, -1.6 * dt * (1 + ai.v / 20), 1.6 * dt * (1 + ai.v / 20));
       ai.v += THREE.MathUtils.clamp(vmax - ai.v, -9 * dt, 6 * dt);
       if (Math.abs(dh) > 1.2) ai.v *= Math.pow(0.4, dt);
@@ -127,7 +130,8 @@ export class Police {
       const ph = Math.floor(g.time * 6) % 2;
       u.red.emissiveIntensity = this.wanted ? (ph ? 12 : 0) : 0; u.blue.emissiveIntensity = this.wanted ? (ph ? 0 : 12) : 0;
       // collision avec la voiture du joueur
-      if (g.veh && dist < (ai.tpl.size.z / 2 + 1.6)) { g.veh.vz *= 0.85; if (!u.rammed && Math.abs(g.veh.vz) > 6) { u.rammed = true; this.addWanted(1, 'collision avec la police'); } }
+      if (g.veh && dist < (ai.tpl.size.z / 2 + 1.6) && this.wanted >= 3) { g.veh.vz *= 0.8; g.veh.yawRate += (Math.random() - 0.5) * 0.8; /* manœuvre PIT */ }
+      if (g.veh && dist < (ai.tpl.size.z / 2 + 1.6)) { g.veh.vz *= 0.92; if (!u.rammed && Math.abs(g.veh.vz) > 6) { u.rammed = true; this.addWanted(1, 'collision avec la police'); } }
       if (sees) seen = true;
       if (dist < 8 && u.mode === 'chase') close = true;
     }
@@ -139,10 +143,13 @@ export class Police {
       if (inKnownCar && !seen) this.lostT -= dt * 0.5; // la voiture recherchée vous trahit : changez de véhicule
       if (this.lostT > need) { this.wanted--; this.lostT = 0; this.renderStars(); if (!this.wanted) { g.life.notify('Vous avez semé la police', 'ok'); this.search = null; this.knownCar = null; } }
       const spd = g.veh ? g.veh.kmh : g.player.speed * 3.6;
-      if (close && spd < 8 && !this.arrest) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt);
-      if (this.bustT > 1.2 && !this.arrest) this.startArrest();
+      // interpellation : il faut être à l'arrêt (ou immobilisé) assez longtemps ; plus facile quand le niveau monte
+      if (close && spd < 4 && !this.arrest) this.bustT += dt; else this.bustT = Math.max(0, this.bustT - dt * 2);
+      if (this.wanted && seen && !this._warned) { this._warned = true; g.life.notify('📢 « Police ! Arrêtez-vous immédiatement ! »', 'warn'); }
+      if (!this.wanted) this._warned = false;
+      if (this.bustT > [0, 5, 4, 3, 2.5, 2][this.wanted] && !this.arrest) this.startArrest();
       // tirs de la police à partir de 3 étoiles
-      if (this.wanted >= 3 && g.combat && !this.arrest) {
+      if (this.wanted >= 4 && g.combat && !this.arrest) {
         const nearU = this.units.find(u => u.ai.pos.distanceTo(target) < 30);
         if (nearU) { const a = nearU.ai.pos, b = target; if (g.world.segmentFree(a.x, 1.2, a.z, b.x, 1.2, b.z) > 0.97) g.combat.damage(dt * (g.veh ? 2 : 5), 'tirs de la police'); }
       }
