@@ -12,13 +12,16 @@ import { loadCharBase as loadCharBase0, Character } from './chars.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import * as W from './world.js';
+import { Traffic } from './traffic.js';
+import { Vehicle } from './vehicle.js';
+import { Population } from './npc.js';
 
 async function loadCharBase(id) { const b = await loadCharBase0(id); charCache[id] = b; return b; }
 const $ = (id) => document.getElementById(id);
 const setLoad = (p, t) => { $('loadbar').style.width = Math.round(p * 100) + '%'; if (t) $('loadtxt').textContent = t; };
 const tick = () => new Promise(r => requestAnimationFrame(() => r()));
 
-const game = window.game = { time: 0, hour: 8.0, day: 1, timeScale: 60 }; // 1 s réelle = 1 min de jeu
+const game = window.game = { time: 0, hour: 8.0, day: 1, timeScale: 30 }; // 1 s réelle = 30 s de jeu (une journée = 48 min)
 
 async function start() {
   const R = game.R = new Renderer($('c'));
@@ -38,6 +41,16 @@ async function start() {
   setLoad(0.5, 'Mobilier urbain…'); await tick();
   await buildProps(scene, city.props, p => setLoad(0.5 + p * 0.2));
   const world = game.world = new StaticWorld(city.colliders);
+  setLoad(0.66, 'Véhicules…');
+  const traffic = game.traffic = new Traffic(scene);
+  await traffic.load();
+  // voitures garées (≈ 30 % des places) + circulation permanente
+  const spots = W.parkingSpots.slice().sort(() => Math.random() - 0.5).slice(0, 60);
+  for (const sp of spots) traffic.parkAt(traffic.newCar(), sp);
+  for (let k = 0; k < R.q.traffic; k++) {
+    const e = W.edges[Math.floor(Math.random() * W.edges.length)];
+    const ai = traffic.newCar(); ai.edge = e; ai.t = W.RW + 2 + Math.random() * (e.len - 2 * W.RW - 10); ai.state = 'drive'; ai.v = 8; traffic.wander(ai);
+  }
 
   setLoad(0.72, 'Habitants…');
   await Promise.all([loadCharBase('rpm'), loadCharBase('michelle')]);
@@ -50,6 +63,11 @@ async function start() {
   let saved = null; try { saved = JSON.parse(localStorage.getItem('lw.profile') || 'null'); } catch (e) {}
   game.profile = saved || { model: 'rpm', first: 'Lucas', last: 'Moreau', top: '#3b5b8c', bottom: '#2b2b30' };
   setPlayerChar(scene, player, game.profile);
+  player.dyn = (p) => traffic.circles(p, 8);
+  setLoad(0.85, 'Habitants : emplois du temps, relations…'); await tick();
+  const pop = game.pop = new Population(scene, traffic, charCache, game);
+  pop.maxVisible = R.q.npc;
+  pop.generate(170);
   setLoad(0.9, 'Compilation des shaders…'); await tick();
   sky.hour = game.hour; sky.update(0, camera, 0);
   player.update(0.016, input); player.updateCamera(1, player.pos);
@@ -74,8 +92,16 @@ async function start() {
     } else if (!game.paused) {
       game.hour += dt * game.timeScale * (input.down('KeyT') ? 30 : 1) / 3600;
       if (game.hour >= 24) { game.hour -= 24; game.day++; }
-      player.update(dt, input);
-      player.updateCamera(dt, player.pos);
+      if (input.pressed('KeyF')) toggleCar();
+      if (game.seq) seqUpdate(dt);
+      else if (game.veh) driveUpdate(dt);
+      else { player.update(dt, input); player.updateCamera(dt, player.pos); }
+      const obst = [{ x: (game.veh ? game.veh.pos : player.pos).x, z: (game.veh ? game.veh.pos : player.pos).z, len: game.veh ? 3 : 1.2 }];
+      for (const p of pop.people) if (p.char) obst.push({ x: p.pos.x, z: p.pos.z, len: 1 });
+      pop.update(dt, camera.position);
+      traffic.update(dt, { obstacles: obst, night: sky.night > 0.45 ? 1 : 0 });
+      traffic.cull(camera.position, Math.min(R.q.drawDist, 260));
+      interactPrompt();
     }
     sky.hour = game.hour; sky.update(dt, camera, game.time);
     windU.uTime.value = game.time;
@@ -124,6 +150,141 @@ function createCharacter(scene, player, camera) {
     };
   });
 }
+
+// ---------- conduite ----------
+const SEAT = new THREE.Vector3(0.37, 0.52, -0.12), HEAD = new THREE.Vector3(0.36, 1.13, -0.2);
+function nearestCar(r = 3.6) {
+  const p = game.player.pos; let best = null, bd = r;
+  for (const ai of game.traffic.cars) { if (ai.state !== 'parked') continue; const d = ai.pos.distanceTo(p); if (d < bd) { bd = d; best = ai; } }
+  return best;
+}
+function doorPoint(car) { const t = car.tpl; return car.obj.localToWorld(new THREE.Vector3(t.size.x / 2 + 0.55, 0, 0.15)); }
+function toggleCar() {
+  if (game.seq) return;
+  const pl = game.player;
+  if (game.veh) {
+    if (game.veh.kmh > 6) return toast('Ralentissez pour descendre');
+    game.seq = { type: 'exit', t: 0 };
+    game.veh.vz = 0; game.veh.vx = 0;
+    return;
+  }
+  const ai = nearestCar(); if (!ai) return;
+  if (ai.owner && ai.owner !== 'player' && !game.stealOk) { /* voiture d'un habitant : on autorise, mais il s'en souviendra */ }
+  game.seq = { type: 'enter', ai, t: 0, phase: 'walk' };
+  pl.mode = 'seq';
+}
+function seatPose(car, ch) {
+  const p = car.obj.localToWorld(SEAT.clone());
+  ch.obj.position.set(p.x, car.obj.position.y + SEAT.y - ch.hipH + 0.02, p.z);
+  ch.obj.rotation.set(0, car.obj.rotation.y, 0);
+}
+function seqUpdate(dt) {
+  const s = game.seq, pl = game.player, ch = pl.char;
+  if (s.type === 'enter') {
+    const car = s.ai.car;
+    if (s.phase === 'walk') {
+      const dp = doorPoint(car); dp.y = pl.pos.y;
+      const d = dp.clone().sub(pl.pos); d.y = 0; const dist = d.length();
+      if (dist > 0.12) {
+        const step = Math.min(dist, 1.7 * dt); pl.pos.addScaledVector(d.normalize(), step);
+        pl.yaw = Math.atan2(d.x, d.z); ch.play('walk', 0.25);
+      }
+      s.walkT = (s.walkT || 0) + dt;
+      if (dist <= 0.12 || s.walkT > 3) { s.phase = 'sit'; s.t = 0; s.from = pl.pos.clone(); s.fromYaw = pl.yaw; ch.play('sit', 0.7); }
+      ch.obj.position.copy(pl.pos); ch.obj.rotation.y = pl.yaw;
+    } else {
+      s.t += dt; const k = Math.min(1, s.t / 1.2), e = k * k * (3 - 2 * k);
+      const seat = car.obj.localToWorld(SEAT.clone()); seat.y = car.obj.position.y + SEAT.y - ch.hipH + 0.02;
+      // se tourner dos au siège, puis glisser à l'intérieur
+      const yawIn = car.obj.rotation.y;
+      let dy = yawIn - s.fromYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      ch.obj.rotation.y = s.fromYaw + dy * Math.min(1, k * 1.6);
+      const turnK = Math.max(0, (k - 0.25) / 0.75);
+      ch.obj.position.lerpVectors(s.from, seat, turnK * turnK * (3 - 2 * turnK));
+      if (k >= 1) startDriving(s.ai);
+    }
+    ch.update(dt);
+    pl.updateCamera(dt, pl.pos);
+  } else { // sortie
+    const v = game.veh, car = v.car; s.t += dt;
+    if (!s.from) { s.from = ch.obj.position.clone(); s.dp = doorPoint(car); s.dp.y = pl.groundAt ? pl.groundAt : v.pos.y; ch.obj.visible = true; game.interior = false; }
+    const k = Math.min(1, s.t / 1.1), e = k * k * (3 - 2 * k);
+    ch.obj.position.lerpVectors(s.from, s.dp, e);
+    if (k > 0.35) ch.play('idle', 0.6);
+    ch.obj.rotation.y = car.obj.rotation.y + Math.PI / 2 * Math.max(0, (k - 0.4) / 0.6);
+    ch.update(dt);
+    pl.updateCamera(dt, v.pos, Math.max(pl.camDist, car.tpl.size.z * 1.25 + 1.5), 1.25);
+    if (k >= 1) endDriving();
+  }
+}
+function startDriving(ai) {
+  const pl = game.player;
+  if (ai.spot) { ai.spot.taken = null; ai.spot = null; }
+  if (ai.owner && ai.owner !== 'player' && ai.owner.memory) game.pop.remember(ai.owner, `s'est fait prendre sa voiture par ${game.profile.first}`);
+  ai.state = 'player';
+  const v = game.veh = new Vehicle(ai.car, game.world); game.vehAI = ai;
+  v.dyn = (p) => game.traffic.circles(p);
+  v.place(ai.pos.x, ai.pos.z, ai.heading); v.spin = ai.spin;
+  pl.mode = 'car'; game.seq = null;
+  pl.camYaw = v.heading + Math.PI; pl.camPitch = 0.16; pl.camInit = false;
+  $('speedo').hidden = false;
+  if (!game.license) toast('Attention : vous conduisez sans permis');
+}
+function endDriving() {
+  const pl = game.player, v = game.veh, ai = game.vehAI, ch = pl.char;
+  pl.place(ch.obj.position.x, ch.obj.position.z, ch.obj.rotation.y);
+  pl.mode = 'foot'; game.seq = null;
+  ai.state = 'parked'; ai.pos.copy(v.pos); ai.heading = v.heading; ai.edge = null; ai.spot = null;
+  game.veh = null; game.vehAI = null; $('speedo').hidden = true;
+  pl.camYaw = v.heading + Math.PI / 2 + Math.PI; pl.camInit = false;
+}
+function driveUpdate(dt) {
+  const v = game.veh, inp = game.input, pl = game.player;
+  const { f, s } = inp.move();
+  if (inp.pressed('KeyC')) game.interior = !game.interior;
+  v.headlights = game.sky.night > 0.45 ? 1 : 0;
+  v.update(dt, { throttle: Math.max(0, f), brake: Math.max(0, -f), steer: -s, handbrake: inp.down('Space') });
+  const ai = game.vehAI; ai.pos.copy(v.pos); ai.heading = v.heading; ai.v = Math.abs(v.vz);
+  // conducteur visible, assis, mains au volant
+  const ch = pl.char; ch.play('sit', 0.3); ch.update(dt); seatPose(v.car, ch);
+  ch.obj.visible = !game.interior;
+  const [mx, my, wh] = inp.consumeMouse();
+  if (game.interior) {
+    // vue intérieure : tête du conducteur, regard libre à la souris
+    game.lookYaw = THREE.MathUtils.clamp((game.lookYaw || 0) - mx * 0.003, -2.2, 2.2);
+    game.lookPitch = THREE.MathUtils.clamp((game.lookPitch || 0) - my * 0.003, -0.6, 0.5);
+    if (!mx && !my) { game.lookYaw *= Math.pow(0.15, dt * (Math.abs(v.vz) > 3 ? 1 : 0)); }
+    const cam = game.R.camera;
+    const head = v.car.obj.localToWorld(HEAD.clone());
+    cam.position.copy(head);
+    const yaw = v.heading + game.lookYaw;
+    const dir = new THREE.Vector3(Math.sin(yaw) * Math.cos(game.lookPitch), Math.sin(game.lookPitch) - 0.05, Math.cos(yaw) * Math.cos(game.lookPitch));
+    cam.lookAt(head.clone().add(dir));
+    cam.userData.focus = v.pos;
+    if (cam.near !== 0.05) { cam.near = 0.05; cam.updateProjectionMatrix(); }
+  } else {
+    const cam = game.R.camera; if (cam.near !== 0.1) { cam.near = 0.1; cam.updateProjectionMatrix(); }
+    pl.camYaw -= mx * 0.0024; pl.camPitch = THREE.MathUtils.clamp(pl.camPitch + my * 0.002, -0.1, 0.9);
+    game.camIdle = (mx || my) ? 0 : (game.camIdle || 0) + dt;
+    if (game.camIdle > 1.2 && Math.abs(v.vz) > 1) {
+      const behind = v.heading + (v.vz < -1 ? 0 : Math.PI);
+      let d = behind - pl.camYaw; d = Math.atan2(Math.sin(d), Math.cos(d)); pl.camYaw += d * Math.min(1, dt * 2.5);
+      pl.camPitch += (0.14 - pl.camPitch) * Math.min(1, dt * 1.5);
+    }
+    pl.camDist = THREE.MathUtils.clamp(pl.camDist + wh * 0.5, 2.2, 12);
+    pl.updateCamera(dt, v.pos, Math.max(pl.camDist, v.car.tpl.size.z * 1.25 + 1.5), 1.25);
+  }
+  pl.pos.copy(v.pos);
+  $('kmh').textContent = Math.round(v.kmh); $('gear').textContent = v.reverse ? 'R' : 'D' + v.gear;
+}
+function interactPrompt() {
+  const el = $('prompt');
+  if (!game.veh) { const ai = nearestCar(); if (ai) { el.hidden = false; el.innerHTML = '<kbd>F</kbd>Monter dans ' + ai.tpl.spec.name; return; } }
+  el.hidden = true;
+}
+let toastT = 0;
+function toast(msg) { const el = $('toast'); el.textContent = msg; el.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 3200); }
+game.toast = toast;
 
 function updateNight(city, sky) {
   const n = sky.night;

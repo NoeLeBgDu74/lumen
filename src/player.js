@@ -37,6 +37,7 @@ export class Player {
     let nx = this.pos.x + this.vel.x * dt, nz = this.pos.z + this.vel.z * dt;
     const r = this.world.resolve(nx, nz, 0.32);
     nx = r.x; nz = r.z;
+    if (this.dyn) for (const c of this.dyn(this.pos)) { const dx = nx - c.x, dz = nz - c.z, d = Math.hypot(dx, dz), m = 0.32 + c.r; if (d < m && d > 1e-4) { nx = c.x + dx / d * m; nz = c.z + dz / d * m; } }
     // saut + gravité, marche des trottoirs
     const gh = groundHeight(nx, nz);
     const c = this.char;

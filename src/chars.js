@@ -92,6 +92,36 @@ async function loadRpmClips() {
   return out;
 }
 
+// Pose assise de conduite construite à partir de la T-pose (orientation des os en espace monde).
+function makeSitClip(work, rest) {
+  const B = bonesOf(work); work.updateMatrixWorld(true);
+  const wq = (b) => b.getWorldQuaternion(new THREE.Quaternion());
+  const wp = (b) => b.getWorldPosition(new THREE.Vector3());
+  const aim = (name, childName, dir) => {
+    const b = B.get(name), c = B.get(childName); if (!b || !c) return;
+    const cur = wp(c).sub(wp(b)).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(cur, dir.clone().normalize());
+    const nw = q.multiply(wq(b));
+    b.quaternion.copy(wq(b.parent).invert().multiply(nw)); work.updateMatrixWorld(true);
+  };
+  for (const s of ['Left', 'Right']) {
+    const k = s === 'Left' ? 1 : -1;
+    aim(s + 'UpLeg', s + 'Leg', new THREE.Vector3(0.12 * k, -0.08, 1));
+    aim(s + 'Leg', s + 'Foot', new THREE.Vector3(0.02 * k, -1, 0.42));
+    aim(s + 'Arm', s + 'ForeArm', new THREE.Vector3(0.28 * k, -0.55, 0.78));
+    aim(s + 'ForeArm', s + 'Hand', new THREE.Vector3(-0.22 * k, 0.32, 0.92));
+  }
+  aim('Spine', 'Spine1', new THREE.Vector3(0, 1, -0.12));
+  const tracks = [];
+  for (const [k, b] of B) {
+    const q = b.quaternion;
+    tracks.push(new THREE.QuaternionKeyframeTrack(b.name.replace(/[\[\]\.:\/]/g, '') + '.quaternion', [0, 1], [q.x, q.y, q.z, q.w, q.x, q.y, q.z, q.w]));
+  }
+  const hips = B.get('Hips'); const hipY = wp(hips).y;
+  const c = new THREE.AnimationClip('sit', 1, tracks); c.userData = { hipY };
+  void rest; return c;
+}
+
 const bases = {};
 export async function loadCharBase(id) {
   if (bases[id]) return bases[id];
@@ -106,6 +136,7 @@ export async function loadCharBase(id) {
   let clips = {};
   if (def.rpm) clips = await loadRpmClips();
   for (const [n, srcName] of CLIPS) { if (clips[n]) continue; const c = src.clips.find(a => a.name === srcName); if (c) clips[n] = bakeRetarget(src, work, tRest, c, n); }
+  clips.sit = makeSitClip(work, tRest);
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root);
   bases[id] = { root, scale: 1.72 / (box.max.y - box.min.y), minY: box.min.y, clips, def };
@@ -118,6 +149,7 @@ export class Character {
     const m = SkeletonUtils.clone(base.root);
     const s = base.scale * height / 1.72;
     m.scale.setScalar(s); m.position.y = -base.minY * s;
+    this.hipH = base.clips.sit ? (base.clips.sit.userData.hipY - base.minY) * s : 0.95;
     if (tint) m.traverse(o => {
       if (!o.isMesh) return;
       const k = Object.keys(tint).find(t => o.material.name.includes(t));
