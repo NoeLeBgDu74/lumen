@@ -45,6 +45,7 @@ export class Police {
     this.search = { pos: pos.clone(), r: 160 - this.wanted * 15, t: g.time };
     this.lastSeenAs = g.veh ? 'car:' + g.veh.car.tpl.spec.id + (g.veh.car.paint ? g.veh.car.paint.color.getHexString() : '') : 'foot';
     if (car) { this.knownCar = car; g.life.notify(`🚘 Plaque relevée : ${car.name} recherchée`, 'warn'); }
+    if (!byPolice && g.coop && this.wanted > before && Math.random() < 0.7) g.coop.viral('a semé la panique (' + why.split(' —')[0] + ')');
     if (this.wanted > before) g.life.notify(`${byPolice ? '🚓 La police vous a vu·e' : '📞 Un témoin a appelé la police'} : ${'★'.repeat(this.wanted)} (${why})`, 'warn');
     this.renderStars();
   }

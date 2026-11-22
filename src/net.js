@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { Character } from './chars.js';
 import { makeCar, poseCar, loadCarTemplate } from './cars.js';
 
-const NET_VERSION = 4; // à incrémenter quand le protocole change : les versions ne se mélangent pas
+const NET_VERSION = 5; // à incrémenter quand le protocole change : les versions ne se mélangent pas
 const WORLD_ID = 'livingworld-lumen-monde-public-v' + NET_VERSION;
 const MAX = 16;
 const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }, { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' }] };
@@ -111,6 +111,7 @@ export class Net {
       case 'take': { const ai = this.carById(m.id); if (ai && ai !== this.g.vehAI) { if (ai.spot) { ai.spot.taken = null; ai.spot = null; } ai.state = 'remote'; ai.remoteBy = from; } } break;
       case 'drop': { const ai = this.carById(m.id); if (ai && ai.state === 'remote') { ai.state = 'parked'; ai.pos.set(m.x, 0, m.z); ai.heading = m.h; ai.net = null; this.g.traffic.sync(ai); } } break;
       case 'ping': { this.pings = this.pings || []; this.pings.push({ pos: new THREE.Vector3(m.x, 0, m.z), name: m.name, t: performance.now() }); this.g.life.notify('📍 ' + m.name + ' a marqué un point'); this.showPing(m.x, m.z); } break;
+      case 'coop': if (this.g.coop && (!m.to || m.to === this.myId)) this.g.coop.onNet(m, from); break;
       case 'emote': { const r = this.remotes[from]; if (r) { r.emoteUntil = performance.now() + 2500; r.emote = m.e; } } break;
       case 's': this.applyState(from, m); break;
       case 'chat': this.pushChat(m.name + ' : ' + m.text); break;

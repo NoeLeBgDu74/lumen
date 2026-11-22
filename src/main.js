@@ -28,6 +28,7 @@ import { HomeInterior } from './home.js';
 import { Actions } from './actions.js';
 import { Story } from './story.js';
 import { playIntro } from './intro.js';
+import { Coop } from './coop.js';
 import { Audio } from './audio.js';
 import { Talk, getKey, setKey, gender } from './talk.js';
 import { Life, Minimap, gpsTo, fmt, ICONS } from './life.js';
@@ -42,7 +43,7 @@ const $ = (id) => document.getElementById(id);
 const setLoad = (p, t) => { $('loadbar').style.width = Math.round(p * 100) + '%'; $('loadpct').textContent = Math.round(p * 100) + ' %'; if (t) $('loadtxt').textContent = t; };
 const TIPS = ['Les habitants se souviennent de vous : soyez aimable… ou pas.', 'Un témoin peut relever votre plaque : changez de voiture pour semer la police.', 'Passez votre permis à l’auto-école pour acheter une voiture.', 'Touche P : votre téléphone (GPS, contacts, banque, multijoueur).', 'Demandez « quoi de neuf ? » aux habitants pour entendre les rumeurs.', 'Sous la pluie, la route glisse : freinez plus tôt.', 'Clic droit pour viser, clic gauche pour tirer, R pour recharger.', 'Touche H pour saluer les autres joueurs.', 'Tout le monde joue dans la même ville : invitez vos amis !'];
 { let ti = Math.floor(Math.random() * TIPS.length); const showTip = () => { const el = $('tip'); if (!el) return; el.style.opacity = 0; setTimeout(() => { el.textContent = '💡 ' + TIPS[ti++ % TIPS.length]; el.style.opacity = 1; }, 400); }; showTip(); const tid = setInterval(() => { if (!$('tip')) clearInterval(tid); else showTip(); }, 4500); }
-const tick = () => new Promise(r => requestAnimationFrame(() => r()));
+const tick = () => new Promise(r => { let done = false; const f = () => { if (!done) { done = true; r(); } }; requestAnimationFrame(f); setTimeout(f, 60); }); // continue même en arrière-plan
 
 const game = window.game = { time: 0, hour: 8.0, day: 1, timeScale: 30 }; // 1 s réelle = 30 s de jeu (une journée = 48 min)
 
@@ -104,7 +105,7 @@ async function start() {
   game.minimap = new Minimap(game);
   game.peds = new Peds(game); game.peds.max = Math.max(16, R.q.npc + 8);
   game.markers = new Markers(scene);
-  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M); game.homeInt = new HomeInterior(game); game.actions = new Actions(game); game.story = new Story(game); game.audio = new Audio(game);
+  game.combat = new Combat(game); game.admin = new Admin(game); game.living = new Living(game); game.npcCrime = game.living; game.weather = new Weather(game, M); game.homeInt = new HomeInterior(game); game.actions = new Actions(game); game.story = new Story(game); game.coop = new Coop(game); game.audio = new Audio(game);
   game.openWardrobe = () => { createCharacter(scene, player, camera).then(() => { setPlayerChar(scene, player, game.profile); }); };
   buildRadars(scene);
   { const ph = W.places.find(p => p.type === 'pharmacy'); window.__lwHospital = ph ? ph.door.p : null; }
@@ -624,6 +625,7 @@ game.forceExit = () => { if (!game.veh) return; const ch = game.player.char; if 
 let pedHitT = 0;
 function gameplayUpdate(dt) {
   game.actions.update(dt);
+  if (game.coop) game.coop.update(dt);
   const L = game.life; L.update(dt); game.places.update(dt); game.police.update(dt); game.net.update(dt);
   game.minimapT = (game.minimapT || 0) + dt; if (game.minimapT > 0.05) { game.minimapT = 0; game.minimap.draw(); }
   const v = game.veh; $('fuel').hidden = !v;
@@ -686,7 +688,7 @@ function togglePhone() {
   if (!ph.hidden) { phoneHome(); document.exitPointerLock?.(); }
 }
 const JLAB = { cashier: 'caissier·ère', shelver: 'employé·e de rayon', office: 'employé·e de bureau', mechanic: 'mécanicien·ne', delivery: 'livreur·se', worker: 'ouvrier·ère', waiter: 'serveur·se', baker: 'boulanger·ère', seller: 'vendeur·se', car_seller: 'vendeur·se auto', instructor: 'moniteur·rice', retired: 'retraité·e', student: 'étudiant·e' };
-const APPS = [['🗺️', 'GPS', '#2a62c9', () => phoneGPS()], ['👥', 'Contacts', '#2f6b47', () => phoneContacts()], ['🏦', 'Banque', '#20406b', () => phoneBank()], ['🚗', 'Véhicules', '#8a1c1c', () => phoneCars()], ['💼', 'Emploi', '#6b5b45', () => phoneJob()], ['🪪', 'Permis', '#e08a1e', () => phoneLicense()], ['🌐', 'Multijoueur', '#6b3f8c', () => phoneNet()], ['🏠', 'Logement', '#4b5a73', () => phoneHousing()], ['🚕', 'Taxi', '#d6a21e', () => phoneTaxi()], ['⚙️', 'Réglages', '#444', () => { togglePhone(); toggleMenu(); }]];
+const APPS = [['🗺️', 'GPS', '#2a62c9', () => phoneGPS()], ['👥', 'Contacts', '#2f6b47', () => phoneContacts()], ['🏦', 'Banque', '#20406b', () => phoneBank()], ['🚗', 'Véhicules', '#8a1c1c', () => phoneCars()], ['💼', 'Emploi', '#6b5b45', () => phoneJob()], ['🪪', 'Permis', '#e08a1e', () => phoneLicense()], ['🌐', 'Multijoueur', '#6b3f8c', () => phoneNet()], ['🏠', 'Logement', '#4b5a73', () => phoneHousing()], ['🚕', 'Taxi', '#d6a21e', () => phoneTaxi()], ['📱', 'Lumen Live', '#e1306c', () => phoneSocial()], ['⚙️', 'Réglages', '#444', () => { togglePhone(); toggleMenu(); }]];
 function phoneHome() {
   $('phClock').textContent = $('clock').textContent;
   $('phBody').innerHTML = `<div class="phh">Bonjour ${game.profile.first}</div><div class="apps">${APPS.map((a, i) => `<button class="app" data-i="${i}"><i style="background:${a[2]}">${a[0]}</i>${a[1]}</button>`).join('')}</div>`;
@@ -747,6 +749,17 @@ game.onIncomingCall = (name, call) => {
   $('acc').onclick = () => { game.net.answer(); phoneHome(); };
   $('dec').onclick = () => { game.net.decline(); ph.hidden = true; };
 };
+function phoneSocial() {
+  const C = game.coop;
+  $('phBody').innerHTML = `<div class="phh">📱 Lumen Live</div><input class="phin" id="postIn" placeholder="Quoi de neuf, ${game.profile.first} ?"><button class="phbtn" id="postGo">Publier</button>` +
+    C.feed.slice(0, 30).map(p => `<div class="phl post${p.viral ? ' viral' : ''}"><b>${p.icon || ''} ${p.author}</b><span>${p.text.replace(/</g, '&lt;')}</span><small>❤️ ${p.likes >= 1000 ? (p.likes / 1000).toFixed(1).replace('.', ',') + ' k' : p.likes} · jour ${p.day}, ${Math.floor(p.h)}h</small></div>`).join('');
+  const go = () => { C.myPost($('postIn').value); phoneSocial(); };
+  $('postIn').addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') go(); });
+  $('postGo').onclick = go;
+}
+game.onRaceInvite = (name, from, m) => game.life.panel('🏁 Défi de course', `<p><b>${name}</b> vous défie dans une course de rue (7 points). Mise : <b>${m.bet} €</b> chacun, le gagnant rafle tout.</p>`, [{ label: 'Accepter le défi', primary: true, run: () => game.coop.acceptRace(from, m) }]);
+game.onHeistInvite = (name, from) => game.life.panel('💰 Braquage en duo', `<p><b>${name}</b> vous propose un braquage à deux. Rendez-vous devant la cible, tenez la position 12 s, puis fuyez jusqu'à la planque. Part : 7 500 € chacun.</p>`, [{ label: 'J’en suis', primary: true, run: () => game.coop.acceptHeist(from) }]);
+
 function phoneTaxi() {
   const types = [['supermarket', 'Supermarché'], ['dealership', 'Concession'], ['driving_school', 'Auto-école'], ['gas_station', 'Station-service'], ['office', 'Bureaux'], ['garage', 'Garage'], ['park', 'Parc'], ['gunshop', 'Armurerie'], ['restaurant', 'Restaurant']];
   const items = types.map(([t, l]) => { const p = W.places.find(x => x.type === t && x.door); return p && { t: '🚕 ' + l, s: p.name + ' · ~' + Math.round(4 + p.door.p.distanceTo(game.player.pos) * 0.0175) + ' €', run: () => { togglePhone(); game.callTaxi(p.door.p, p.name); } }; }).filter(Boolean);
@@ -767,9 +780,10 @@ function phoneLicense() { const l = game.life.s.license; phList('Permis de condu
 function phoneHousing() { const h = game.life.s.home; phList('Logement', h ? [{ t: h.name, s: h.owned ? 'Propriétaire' : 'Locataire · ' + fmt(h.rent * 4.3) + '/mois', run: () => goGPS(W.places[h.id].door.p, 'Domicile') }] : [{ t: 'Sans logement', s: 'Allez à la porte d’un immeuble ou d’une maison (E) pour louer ou acheter.' }]); }
 function phoneNet() {
   const n = game.net;
-  $('phBody').innerHTML = `<div class="phh">Multijoueur</div>${n.active ? `<div class="phl"><b>Salon ${n.code}</b><small>${n.conns.length} joueur(s) connecté(s)</small></div><input class="phin" id="chatIn" placeholder="Message aux joueurs"><button class="phbtn" id="chatGo">Envoyer</button><div>${n.chat.slice(-8).map(c => `<div class="phl"><small>${c}</small></div>`).join('')}</div>`
+  $('phBody').innerHTML = `<div class="phh">Multijoueur</div>${n.active ? `<div class="phl"><b>Salon ${n.code}</b><small>${n.conns.length} joueur(s) connecté(s)</small></div><button class="phbtn" id="duoRace">🏁 Défier en course (500 €)</button><button class="phbtn" id="duoHeist">💰 Braquage en duo</button><button class="phbtn" id="duoPay">💸 Envoyer 500 € à mon ami</button><input class="phin" id="chatIn" placeholder="Message aux joueurs"><button class="phbtn" id="chatGo">Envoyer</button><div>${n.chat.slice(-8).map(c => `<div class="phl"><small>${c}</small></div>`).join('')}</div>`
     : `<p style="font-size:12.5px;color:#bbb">Jouez avec vos amis : l’un crée un salon, les autres entrent le code.</p><button class="phbtn" id="netHost">Créer un salon</button><input class="phin" id="netCode" placeholder="Code du salon (4 lettres)" maxlength="4"><button class="phbtn" id="netJoin">Rejoindre</button>`}`;
   const stop = (e) => e.stopPropagation();
+  if (n.active) { $('duoRace').onclick = () => { game.coop.inviteRace(500); togglePhone(); }; $('duoHeist').onclick = () => { game.coop.inviteHeist(); togglePhone(); }; $('duoPay').onclick = () => { const id = Object.keys(n.remotes)[0]; if (!id) return game.life.notify('Aucun ami connecté', 'warn'); if (game.coop.pay(id, 500)) game.life.notify('💸 500 € envoyés à ' + n.remotes[id].name, 'ok'); }; }
   if (n.active) { $('chatIn').addEventListener('keydown', e => { stop(e); if (e.key === 'Enter') { n.say($('chatIn').value); phoneNet(); } }); $('chatGo').onclick = () => { n.say($('chatIn').value); phoneNet(); }; }
   else { $('netCode').addEventListener('keydown', stop); $('netHost').onclick = async () => { await n.hostRoom(); setTimeout(phoneNet, 1500); }; $('netJoin').onclick = () => { n.join($('netCode').value); setTimeout(phoneNet, 2500); }; }
 }
